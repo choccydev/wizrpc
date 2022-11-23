@@ -1,6 +1,6 @@
 [package]
 name = "wizrpc"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 license = "MIT"
 description = "[WIP] Rust support for the JSON-RPC variant used by the local network interface to control WizConnected devices"
