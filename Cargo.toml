@@ -1,0 +1,21 @@
+[package]
+name = "wizrpc"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "[WIP] Rust support for the JSON-RPC variant used by the local network interface to control WizConnected devices"
+homepage = "https://github.com/aordano/wizrpc"
+documentation = "https://github.com/aordano/wizrpc"
+repository = "https://github.com/aordano/wizrpc"
+readme = "readme.md"
+
+
+[dependencies]
+http = "0.2.8"
+lazy_static = "1.4.0"
+optional_struct = "0.2.0"
+reqwest = "0.11.12"
+serde = { version = "1.0.147", features = ["derive"] }
+serde_json = { version = "1.0.87", features = ["raw_value"] }
+thiserror = "1.0.37"
+tracing = "0.1.37"
