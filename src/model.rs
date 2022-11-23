@@ -1,16 +1,137 @@
-use std::collections::HashMap;
-
-use crate::errors::{QueryError, SerializationError};
-
-use super::errors::WizNetError;
+use super::error::{QueryError, SerializationError, WizNetError};
 use lazy_static::lazy_static;
+use mac_address::get_mac_address;
+use macaddr::MacAddr6;
 use optional_struct::OptionalStruct;
 use serde::{Deserialize, Serialize};
 use serde_json::{value::RawValue, Number, Value};
+use std::collections::HashMap;
+use std::str::FromStr;
+use std::string::ToString;
+use strum_macros::Display;
+use uuid::Uuid;
 
-lazy_static! {
-    #[derive(Clone, Debug, Deserialize, Serialize, Copy)]
-    pub static ref JSONRPCVERSION: String = "2.0".to_string();
+lazy_static! {}
+
+#[derive(Debug, Clone, Copy, Display)]
+pub enum MethodNames {
+    #[strum(serialize = "getPower")]
+    GetPower,
+    #[strum(serialize = "getSystemConfig")]
+    GetSystemConfig,
+    #[strum(serialize = "getModelConfig")]
+    GetModelConfig,
+    #[strum(serialize = "getUserConfig")]
+    GetUserConfig,
+    #[strum(serialize = "getWifiConfig")]
+    GetWifiConfig,
+    #[strum(serialize = "getDevInfo")]
+    GetDevInfo,
+    #[strum(serialize = "getPilot")]
+    GetPilot,
+    #[strum(serialize = "setPilot")]
+    SetPilot,
+    #[strum(serialize = "setState")]
+    SetState,
+    #[strum(serialize = "setDevInfo")]
+    SetDevInfo,
+    #[strum(serialize = "setSchd")]
+    SetSchd,
+    #[strum(serialize = "setSchdPset")]
+    SetSchdPset,
+    #[strum(serialize = "setWifiConfig")]
+    SetWifiConfig,
+    #[strum(serialize = "setFavs")]
+    SetFavs,
+    #[strum(serialize = "reset")]
+    Reset,
+    #[strum(serialize = "reboot")]
+    Reboot,
+    #[strum(serialize = "syncPilot")]
+    SyncPilot,
+    #[strum(serialize = "syncUserConfig")]
+    SyncUserConfig,
+    #[strum(serialize = "syncSchdPset")]
+    SyncSchdPset,
+    #[strum(serialize = "syncBroadcastPilot")]
+    SyncBroadcastPilot,
+    #[strum(serialize = "syncUserConfig")]
+    SyncSystemConfig,
+    #[strum(serialize = "syncConfig")]
+    SyncConfig,
+    #[strum(serialize = "syncAlarm")]
+    SyncAlarm,
+    #[strum(serialize = "pulse")]
+    Pulse,
+    #[strum(serialize = "registration")]
+    Registration,
+}
+
+#[derive(Debug, Clone)]
+pub struct Fingerprint {
+    prefix: String,
+    sender: MacAddr6,
+    id: Uuid,
+}
+
+impl Fingerprint {
+    pub fn from_string(string: String) -> Self {
+        // TODO add error handling
+        let vec_data = Vec::from(string.as_bytes());
+        let mut iter_first = vec_data.split(|character| character.to_string() == ':'.to_string());
+        let prefix = String::from_utf8(Vec::from(iter_first.next().unwrap())).unwrap();
+
+        let sender = MacAddr6::from_str(
+            String::from_utf8(Vec::from(iter_first.next().unwrap()))
+                .unwrap()
+                .as_str(),
+        )
+        .unwrap();
+
+        let id = Uuid::parse_str(
+            String::from_utf8(Vec::from(iter_first.next().unwrap()))
+                .unwrap()
+                .as_str(),
+        )
+        .unwrap();
+
+        Self {
+            prefix: prefix,
+            sender: sender,
+            id: id,
+        }
+    }
+
+    pub fn to_string(self: Self) -> String {
+        let mut text = String::new();
+        text.push_str(self.prefix.as_str());
+        text.push(':');
+        text.push_str(format!("{:-}", self.sender).as_str());
+        text.push(':');
+        text.push_str(self.id.as_simple().to_string().as_str());
+        text
+    }
+
+    pub fn new() -> Result<Self, QueryError> {
+        let mac = MacAddr6::from(
+            match get_mac_address() {
+                Ok(addr) => Ok(addr),
+                Err(_) => Err(QueryError::Serialization(
+                    SerializationError::MacAddressError,
+                )),
+            }?
+            .ok_or(QueryError::Serialization(
+                SerializationError::MacAddressError,
+            ))?
+            .bytes(),
+        );
+
+        Ok(Self {
+            prefix: "WizRPC".to_string(),
+            sender: mac,
+            id: Uuid::new_v4(),
+        })
+    }
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -21,44 +142,41 @@ pub struct RPCErrorData {
 }
 
 #[derive(Clone, Debug, Deserialize)]
-pub enum IDOpts {
-    Num(Number),
-    Str(String),
-}
-
-#[derive(Clone, Debug, Deserialize)]
 pub struct RPCError {
-    pub jsonrpc: JSONRPCVERSION,
+    pub method: String,
+    pub env: String,
     pub error: RPCErrorData,
-    pub id: IDOpts,
-}
-
-impl RPCError {
-    pub fn new(error: RPCErrorData, id: IDOpts) -> Self {
-        Self {
-            jsonrpc: JSONRPCVERSION,
-            error: error,
-            id: id,
-        }
-    }
-    pub fn from_wiz_error(error: WizNetError, id: IDOpts) -> Self {
-        Self::new(error.to_rpc_error_data(), id)
-    }
+    pub id: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct RPCResult {
-    pub jsonrpc: String,
+    pub method: String,
+    pub env: String,
     pub result: Box<RawValue>,
-    pub id: IDOpts,
+    pub id: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct RPCRequest {
-    pub jsonrpc: String,
     pub method: String,
     pub params: Option<Box<RawValue>>,
-    pub id: IDOpts,
+    pub id: Option<String>,
+}
+
+impl RPCRequest {
+    pub fn new(method: MethodNames, params: Option<Value>) -> Self {
+        // TODO add error handling
+        Self {
+            method: method.to_string(),
+            params: if let Some(parameters) = params {
+                Some(RawValue::from_string(parameters.to_string()).unwrap())
+            } else {
+                None
+            },
+            id: Some(Fingerprint::new().unwrap().to_string()),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
