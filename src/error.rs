@@ -1,5 +1,4 @@
 use super::model::RPCError;
-use crate::model::{ParamsFilter, RPCErrorData, RequestParams};
 use serde_json::value::RawValue;
 use thiserror::Error;
 
@@ -66,11 +65,6 @@ impl WizNetError {
 
 #[derive(Error, Debug)]
 pub enum QueryError {
-    #[error("Not all keys required by the method are present on the parameters given.\n Required Parameters: {filter:#?}\n Given parameters: {params:#?}")]
-    FilterError {
-        params: RequestParams,
-        filter: ParamsFilter,
-    },
     #[error(transparent)]
     Serialization(SerializationError),
     #[error(transparent)]
@@ -78,8 +72,10 @@ pub enum QueryError {
 }
 #[derive(Error, Debug)]
 pub enum SerializationError {
-    #[error("Failed serializing object into raw JSON-RPC: {params:#?}")]
-    ValueError { params: RequestParams },
     #[error("Failed getting MAC address of device")]
     MacAddressError,
+    #[error("Failed deserializating returned Method Name")]
+    MethodNameDeserialization,
+    #[error("Failed deserializating value from string")]
+    ValueDeserialization,
 }

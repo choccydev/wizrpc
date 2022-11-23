@@ -15,11 +15,11 @@ http = "0.2.8"
 lazy_static = "1.4.0"
 mac_address = "1.1.4"
 macaddr = { version = "1.0.1", features = ["serde_std"] }
-optional_struct = "0.2.0"
 reqwest = "0.11.12"
 serde = { version = "1.0.147", features = ["derive"] }
 serde_json = { version = "1.0.87", features = ["raw_value"] }
+strum = "0.24.1"
 strum_macros = "0.24.3"
 thiserror = "1.0.37"
 tracing = "0.1.37"
-uuid = { version = "1.2.2", features = ["v4", "fast-rng"] }
+rand = "0.8.5"
