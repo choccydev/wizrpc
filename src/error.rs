@@ -1,6 +1,5 @@
-use crate::model::{IDOpts, ParamsFilter, RPCErrorData, RequestParams};
-
 use super::model::RPCError;
+use crate::model::{ParamsFilter, RPCErrorData, RequestParams};
 use serde_json::value::RawValue;
 use thiserror::Error;
 
@@ -63,49 +62,6 @@ impl WizNetError {
             }
         }
     }
-    pub fn to_rpc_error_data(self: Self) -> RPCErrorData {
-        match self {
-            Self::Parse { data } => RPCErrorData {
-                code: -32700,
-                message: "Parse error".to_string(),
-                data: data,
-            },
-            Self::InvalidRequest { data } => RPCErrorData {
-                code: -32600,
-                message: "Invalid Request".to_string(),
-                data: data,
-            },
-            Self::MethodNotFound { data } => RPCErrorData {
-                code: -32601,
-                message: "Method not found".to_string(),
-                data: data,
-            },
-            Self::InvalidParameters { data } => RPCErrorData {
-                code: -32602,
-                message: "Invalid params".to_string(),
-                data: data,
-            },
-            Self::Internal { data } => RPCErrorData {
-                code: -32603,
-                message: "Internal error".to_string(),
-                data: data,
-            },
-            Self::Server { data, message } => RPCErrorData {
-                code: -32000,
-                message: message,
-                data: data,
-            },
-            Self::Unknown { message, data } => RPCErrorData {
-                code: -30000,
-                message: message,
-                data: data,
-            },
-        }
-    }
-
-    pub fn to_rpc_error(self: Self, id: IDOpts) -> RPCError {
-        RPCError::from_wiz_error(self, id)
-    }
 }
 
 #[derive(Error, Debug)]
@@ -124,4 +80,6 @@ pub enum QueryError {
 pub enum SerializationError {
     #[error("Failed serializing object into raw JSON-RPC: {params:#?}")]
     ValueError { params: RequestParams },
+    #[error("Failed getting MAC address of device")]
+    MacAddressError,
 }
