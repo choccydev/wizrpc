@@ -1,5 +1,4 @@
 use super::error::{QueryError, SerializationError};
-use http::Uri;
 use lazy_static::lazy_static;
 use mac_address::get_mac_address;
 use macaddr::MacAddr6;
@@ -9,6 +8,7 @@ use serde_json::{value::RawValue, Value};
 use std::str::FromStr;
 use std::string::ToString;
 use strum_macros::{Display, EnumString};
+use url::Host;
 
 lazy_static! {}
 
@@ -97,12 +97,12 @@ impl Fingerprint {
 #[derive(Debug, Clone)]
 pub struct Target {
     pub name: String,
-    pub address: Uri,
+    pub address: Host,
     pub device: MacAddr6,
 }
 
 impl Target {
-    pub fn new(address: Uri, mac: MacAddr6, name: Option<String>) -> Self {
+    pub fn new(address: Host, mac: MacAddr6, name: Option<String>) -> Self {
         Self {
             name: if let Some(good_name) = name {
                 good_name
@@ -228,7 +228,7 @@ pub struct WizRPCRequest {
 }
 
 impl WizRPCRequest {
-    pub fn new(address: Uri, method: MethodNames, params: Option<Value>) -> Self {
+    pub fn new(address: Host, method: MethodNames, params: Option<Value>) -> Self {
         todo!()
     }
     pub fn to_raw(self: Self) -> Box<[u8]> {

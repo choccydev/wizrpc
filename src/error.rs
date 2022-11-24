@@ -78,6 +78,8 @@ pub enum QueryError {
 pub enum SerializationError {
     #[error("Failed getting MAC address of device")]
     MacAddressError,
+    #[error("Failed parsing provided address")]
+    IPAddrError,
     #[error("Failed deserializating returned Method Name")]
     MethodNameDeserialization,
     #[error("Failed deserializating value from string")]
