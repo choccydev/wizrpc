@@ -24,6 +24,8 @@ pub enum WizNetError {
         message: String,
         data: Option<Box<RawValue>>,
     },
+    #[error("Target is not a wiz device or returned bogus data")]
+    NotAWizDevice,
 }
 
 impl WizNetError {
@@ -69,6 +71,8 @@ pub enum QueryError {
     Serialization(SerializationError),
     #[error(transparent)]
     RPC(WizNetError),
+    #[error(transparent)]
+    Network(std::io::Error),
 }
 #[derive(Error, Debug)]
 pub enum SerializationError {
@@ -78,4 +82,6 @@ pub enum SerializationError {
     MethodNameDeserialization,
     #[error("Failed deserializating value from string")]
     ValueDeserialization,
+    #[error("Failed converting bytes to str")]
+    StrFromBytes,
 }
