@@ -11,7 +11,6 @@ readme = "readme.md"
 
 
 [dependencies]
-http = "0.2.8"
 lazy_static = "1.4.0"
 mac_address = "1.1.4"
 macaddr = { version = "1.0.1", features = ["serde_std"] }
@@ -24,3 +23,5 @@ tracing = "0.1.37"
 rand = "0.8.5"
 tokio = { version = "1.22.0", features = ["net"] }
 dns-lookup = "1.0.8"
+qscan = "0.6.0"
+url = "2.3.1"
