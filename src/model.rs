@@ -124,7 +124,7 @@ pub struct RPCErrorData {
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct RPCError {
-    pub method: String,
+    pub method: Option<String>,
     pub env: String,
     pub error: RPCErrorData,
     pub id: Option<i32>,
@@ -170,6 +170,15 @@ impl RPCResult {
             },
         })
     }
+}
+
+#[derive(Clone, Debug, Deserialize, Display)]
+#[serde(untagged)]
+pub enum RPCResponse {
+    #[strum(serialize = "result")]
+    Ok(RPCResult),
+    #[strum(serialize = "error")]
+    Err(RPCError),
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -218,12 +227,23 @@ pub struct WizRPCRequest {
     pub params: Option<Value>,
 }
 
-impl WizRPCRequest {}
-
-pub struct WizRPCResponse {
-    method: MethodNames,
-    result: Option<Value>,
-    fingerprint: Option<Fingerprint>,
+impl WizRPCRequest {
+    pub fn new(address: Uri, method: MethodNames, params: Option<Value>) -> Self {
+        todo!()
+    }
+    pub fn to_raw(self: Self) -> Box<[u8]> {
+        todo!()
+    }
 }
 
-impl WizRPCResponse {}
+pub struct WizRPCResponse {
+    pub method: MethodNames,
+    pub result: Option<Value>,
+    pub fingerprint: Option<Fingerprint>,
+}
+
+impl WizRPCResponse {
+    pub fn from_rpc_result(result: RPCResult) -> Self {
+        todo!()
+    }
+}
