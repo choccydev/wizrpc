@@ -1,4 +1,5 @@
 use super::error::{QueryError, SerializationError};
+use http::Uri;
 use lazy_static::lazy_static;
 use mac_address::get_mac_address;
 use macaddr::MacAddr6;
@@ -53,7 +54,7 @@ pub enum MethodNames {
     SyncSchdPset,
     #[strum(serialize = "syncBroadcastPilot")]
     SyncBroadcastPilot,
-    #[strum(serialize = "syncUserConfig")]
+    #[strum(serialize = "syncSystemConfig")]
     SyncSystemConfig,
     #[strum(serialize = "syncConfig")]
     SyncConfig,
@@ -67,8 +68,8 @@ pub enum MethodNames {
 
 #[derive(Debug, Clone)]
 pub struct Fingerprint {
-    device: MacAddr6,
-    id: Option<i32>,
+    pub device: MacAddr6,
+    pub id: Option<i32>,
 }
 
 impl Fingerprint {
@@ -90,6 +91,27 @@ impl Fingerprint {
             device: mac,
             id: Some(thread_rng().gen()),
         })
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Target {
+    pub name: String,
+    pub address: Uri,
+    pub device: MacAddr6,
+}
+
+impl Target {
+    pub fn new(address: Uri, mac: MacAddr6, name: Option<String>) -> Self {
+        Self {
+            name: if let Some(good_name) = name {
+                good_name
+            } else {
+                mac.to_string()
+            },
+            address: address,
+            device: mac,
+        }
     }
 }
 
@@ -191,8 +213,9 @@ impl WizEnv {
 }
 
 pub struct WizRPCRequest {
-    method: MethodNames,
-    params: Option<Value>,
+    pub target: Target,
+    pub method: MethodNames,
+    pub params: Option<Value>,
 }
 
 impl WizRPCRequest {}
