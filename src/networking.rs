@@ -145,20 +145,24 @@ pub struct Client {
     pub devices: Vec<Target>,
     pub sock: UdpSocket,
     pub timeout: Option<u16>,
+    pub address: SocketAddr,
 }
 
 impl Client {
-    pub async fn init(
-        mut self: Self,
-        bind_addr: SocketAddr,
-        timeout: Option<u16>,
-    ) -> Result<Self, QueryError> {
-        self.sock = match UdpSocket::bind(bind_addr).await {
-            Ok(sock) => sock,
-            Err(err) => return Err(QueryError::Network(err)),
-        };
-        self.timeout = timeout;
-        Ok(self.discover(bind_addr).await?.update_names())
+    pub async fn new(bind_addr: SocketAddr, timeout: Option<u16>) -> Result<Self, QueryError> {
+        Ok(Client {
+            names: Vec::new(),
+            devices: Vec::new(),
+            sock: match UdpSocket::bind(bind_addr).await {
+                Ok(sock) => sock,
+                Err(err) => return Err(QueryError::Network(err)),
+            },
+            timeout: timeout,
+            address: bind_addr,
+        })
+    }
+    pub async fn init(self: Self) -> Result<Self, QueryError> {
+        Ok(self.discover().await?.update_names())
     }
 
     pub async fn send(
@@ -168,8 +172,8 @@ impl Client {
         todo!()
     }
 
-    pub async fn discover(mut self: Self, host: SocketAddr) -> Result<Self, QueryError> {
-        let valid_ips = scan(host.ip(), self.timeout).await?;
+    pub async fn discover(mut self: Self) -> Result<Self, QueryError> {
+        let valid_ips = scan(self.address.ip(), self.timeout).await?;
 
         let mut valid_devices = Vec::new();
 
@@ -192,7 +196,7 @@ impl Client {
         for device in valid_devices {
             let host = match Host::parse(device.to_string().as_str()) {
                 Ok(host) => host,
-                Err(err) => return Err(QueryError::Serialization(SerializationError::IPAddrError)),
+                Err(_) => return Err(QueryError::Serialization(SerializationError::IPAddrError)),
             };
             let mac = self.get_mac(host.clone()).await?;
             self.devices.push(Target::new(host, mac, None));
@@ -261,7 +265,7 @@ impl Client {
 
                 match MacAddr6::from_str(mac) {
                     Ok(macaddr) => Ok(macaddr),
-                    Err(err) => Err(QueryError::Serialization(
+                    Err(_) => Err(QueryError::Serialization(
                         SerializationError::MacAddressError,
                     )),
                 }
