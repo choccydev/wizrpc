@@ -1,4 +1,4 @@
-use super::error::{QueryError, SerializationError};
+use crate::error::{QueryError, SerializationError};
 use lazy_static::lazy_static;
 use mac_address::get_mac_address;
 use macaddr::MacAddr6;

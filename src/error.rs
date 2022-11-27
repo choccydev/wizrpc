@@ -1,5 +1,8 @@
-use super::model::RPCError;
+use crate::model::RPCError;
+use crate::model::Target;
 use serde_json::value::RawValue;
+use socket2::Socket;
+use std::sync::{PoisonError, RwLockReadGuard, RwLockWriteGuard};
 use thiserror::Error;
 
 #[derive(Error, Debug, Clone)]
@@ -73,6 +76,8 @@ pub enum QueryError {
     RPC(WizNetError),
     #[error(transparent)]
     Network(std::io::Error),
+    #[error(transparent)]
+    Sync(SyncError),
 }
 #[derive(Error, Debug, Clone, Copy)]
 pub enum SerializationError {
@@ -88,8 +93,50 @@ pub enum SerializationError {
     StrFromBytes,
 }
 
+#[derive(Error, Debug, Clone, Copy)]
+pub enum SyncError {
+    #[error("Mutex lock failed")]
+    MutexLock,
+}
+
 impl From<std::io::Error> for QueryError {
     fn from(err: std::io::Error) -> Self {
         QueryError::Network(err)
+    }
+}
+
+impl From<retry::Error<PoisonError<RwLockWriteGuard<'_, Socket>>>> for QueryError {
+    fn from(_: retry::Error<PoisonError<RwLockWriteGuard<'_, Socket>>>) -> Self {
+        QueryError::Sync(SyncError::MutexLock)
+    }
+}
+
+impl From<PoisonError<RwLockWriteGuard<'_, Vec<Target>>>> for QueryError {
+    fn from(_: PoisonError<RwLockWriteGuard<'_, Vec<Target>>>) -> Self {
+        QueryError::Sync(SyncError::MutexLock)
+    }
+}
+
+impl From<PoisonError<RwLockWriteGuard<'_, Vec<String>>>> for QueryError {
+    fn from(_: PoisonError<RwLockWriteGuard<'_, Vec<String>>>) -> Self {
+        QueryError::Sync(SyncError::MutexLock)
+    }
+}
+
+impl From<retry::Error<PoisonError<RwLockReadGuard<'_, Socket>>>> for QueryError {
+    fn from(_: retry::Error<PoisonError<RwLockReadGuard<'_, Socket>>>) -> Self {
+        QueryError::Sync(SyncError::MutexLock)
+    }
+}
+
+impl From<PoisonError<RwLockReadGuard<'_, Vec<Target>>>> for QueryError {
+    fn from(_: PoisonError<RwLockReadGuard<'_, Vec<Target>>>) -> Self {
+        QueryError::Sync(SyncError::MutexLock)
+    }
+}
+
+impl From<PoisonError<RwLockReadGuard<'_, Vec<String>>>> for QueryError {
+    fn from(_: PoisonError<RwLockReadGuard<'_, Vec<String>>>) -> Self {
+        QueryError::Sync(SyncError::MutexLock)
     }
 }

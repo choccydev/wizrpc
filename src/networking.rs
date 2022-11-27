@@ -5,13 +5,17 @@ use dns_lookup::lookup_host;
 use lazy_static::lazy_static;
 use local_ip_address::local_ip;
 use macaddr::MacAddr6;
+use retry::delay::{jitter, Fixed};
+use retry::retry;
 use socket2::{Domain, Protocol, SockAddr, Socket, Type};
 use std::io::Read;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::str::{from_utf8, FromStr};
+use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
 pub const DEFAULT_BUFFER_SIZE: usize = 1024;
+pub const DEFAULT_RETRIES: usize = 3;
 lazy_static! {
     pub static ref DEFAULT_TARGET_PORT: u16 = 38899;
     pub static ref DEFAULT_SOURCE_DATA_PORT: u16 = 39900;
@@ -31,19 +35,20 @@ lazy_static! {
 
 #[derive(Debug)]
 pub struct Client {
-    pub names: Vec<String>,
-    pub devices: Vec<Target>,
-    pub ping_sock: Socket,
-    pub data_sock: Socket,
-    pub ping_timeout: Duration,
-    pub data_timeout: Duration,
-    pub buffer_size: usize,
     pub address: SockAddr,
     pub host: IpAddr,
+    names_lock: RwLock<Vec<String>>,
+    devices_lock: RwLock<Vec<Target>>,
+    ping_lock: RwLock<Socket>,
+    data_lock: RwLock<Socket>,
+    ping_timeout: Duration,
+    data_timeout: Duration,
+    buffer_size: usize,
+    retries: usize,
 }
 
 impl Client {
-    pub async fn default() -> Result<Self, QueryError> {
+    pub async fn default() -> Result<Arc<Self>, QueryError> {
         let data_sock = Socket::new(Domain::IPV4, Type::DGRAM, Some(Protocol::UDP))?;
         data_sock.set_reuse_address(true)?;
         data_sock.set_reuse_port(true)?;
@@ -66,17 +71,18 @@ impl Client {
 
         let host = data_sock.local_addr().unwrap().as_socket().unwrap().ip();
 
-        Ok(Client {
-            names: Vec::new(),
-            devices: Vec::new(),
-            data_sock: data_sock,
-            ping_sock: ping_sock,
+        Ok(Arc::new(Client {
+            names_lock: RwLock::new(Vec::new()),
+            devices_lock: RwLock::new(Vec::new()),
+            data_lock: RwLock::new(data_sock),
+            ping_lock: RwLock::new(ping_sock),
             ping_timeout: *DEFAULT_PING_TIMEOUT,
             data_timeout: *DEFAULT_DATA_TIMEOUT,
             buffer_size: DEFAULT_BUFFER_SIZE,
+            retries: DEFAULT_RETRIES,
             address: DEFAULT_SOCK_DATA_ADDRESS.clone(),
             host: host,
-        })
+        }))
     }
 
     pub async fn new(
@@ -85,7 +91,8 @@ impl Client {
         ping_timeout_ms: Option<u64>,
         data_timeout_ms: Option<u64>,
         buffer_size: Option<usize>,
-    ) -> Result<Self, QueryError> {
+        retries: Option<usize>,
+    ) -> Result<Arc<Self>, QueryError> {
         let addr = SockAddr::from(SocketAddr::new(
             if let Some(addr) = bind_addr {
                 addr
@@ -138,21 +145,30 @@ impl Client {
 
         let host = data_sock.local_addr().unwrap().as_socket().unwrap().ip();
 
-        Ok(Client {
-            names: Vec::new(),
-            devices: Vec::new(),
-            data_sock: data_sock,
-            ping_sock: ping_sock,
+        let retry = if let Some(number) = retries {
+            number
+        } else {
+            DEFAULT_RETRIES
+        };
+
+        Ok(Arc::new(Client {
+            names_lock: RwLock::new(Vec::new()),
+            devices_lock: RwLock::new(Vec::new()),
+            data_lock: RwLock::new(data_sock),
+            ping_lock: RwLock::new(ping_sock),
             ping_timeout: ping_timeout,
             data_timeout: data_timeout,
             buffer_size: buffer,
+            retries: retry,
             address: addr,
             host: host,
-        })
+        }))
     }
 
-    pub async fn discover(self: Self) -> Result<Self, QueryError> {
-        Ok(self.update_discovery().await?.update_names())
+    pub async fn discover(self: &mut Arc<Self>) -> Result<(), QueryError> {
+        self.update_discovery().await?;
+        self.update_names()?;
+        Ok(())
     }
 
     pub async fn send(
@@ -162,7 +178,7 @@ impl Client {
         todo!()
     }
 
-    async fn update_discovery(mut self: Self) -> Result<Self, QueryError> {
+    async fn update_discovery(self: &mut Arc<Self>) -> Result<(), QueryError> {
         let valid_ips = self.scan().await?;
 
         let mut valid_devices = Vec::new();
@@ -176,28 +192,33 @@ impl Client {
         for device in valid_devices {
             let host = device;
             let mac = self.get_mac(host.clone()).await?;
-            self.devices.push(Target::new(host, mac, None));
+
+            let mut devices = self.devices_lock.write()?;
+            devices.push(Target::new(host, mac, None));
         }
 
-        Ok(self)
+        Ok(())
     }
 
-    fn update_names(mut self: Self) -> Self {
-        self.names = self
-            .devices
+    fn update_names(self: &Arc<Self>) -> Result<(), QueryError> {
+        let devices = self.devices_lock.read()?;
+        let mut names = self.names_lock.write()?;
+        let mut names_data: Vec<String> = devices
             .iter()
             .map(|target: &Target| target.name.clone())
             .collect();
-        self
+        names.drain(0..);
+        names.append(&mut names_data);
+        Ok(())
     }
 
-    pub fn get_ip(self: &Self, address: String) -> Result<IpAddr, QueryError> {
+    fn get_ip(self: &Arc<Self>, address: String) -> Result<IpAddr, QueryError> {
         let ip = lookup_host(address.as_str())?;
 
         Ok(ip[0])
     }
 
-    pub async fn get_mac(self: &mut Self, address: IpAddr) -> Result<MacAddr6, QueryError> {
+    async fn get_mac(self: &Arc<Self>, address: IpAddr) -> Result<MacAddr6, QueryError> {
         let mac = self.ping(address).await?;
         match MacAddr6::from_str(&mac) {
             Ok(macaddr) => Ok(macaddr),
@@ -207,18 +228,25 @@ impl Client {
         }
     }
 
-    pub async fn ping(self: &mut Self, target: IpAddr) -> Result<String, QueryError> {
+    async fn ping(self: &Arc<Self>, target: IpAddr) -> Result<String, QueryError> {
         let addr = SockAddr::from(SocketAddr::new(target, *DEFAULT_TARGET_PORT));
 
         let mut buffer = [0; DEFAULT_BUFFER_SIZE];
 
-        self.ping_sock.connect(&addr)?;
+        let mut sock = retry(
+            Fixed::from(self.ping_timeout)
+                .map(jitter)
+                .take(self.retries),
+            || self.ping_lock.write(),
+        )?;
 
-        self.ping_sock
-            .send("{\"method\":\"getSystemConfig\"}".as_bytes())?;
+        sock.connect(&addr)?;
 
-        //? this is blocking? weirdly? huh?
-        let result_length = self.ping_sock.read(&mut buffer)?;
+        sock.send("{\"method\":\"getSystemConfig\"}".as_bytes())?;
+
+        let result_length = sock.read(&mut buffer)?;
+
+        drop(sock);
 
         if result_length > 0 {
             let response = self.parse_raw(&buffer)?;
@@ -245,7 +273,7 @@ impl Client {
         }
     }
 
-    pub async fn scan(self: &mut Self) -> Result<Vec<IpAddr>, QueryError> {
+    async fn scan(self: &mut Arc<Self>) -> Result<Vec<IpAddr>, QueryError> {
         if self.host.is_ipv4() {
             let mut host_parts: Vec<u8> = Vec::new();
             let host_string = self.host.to_string();
@@ -302,7 +330,7 @@ impl Client {
 
             // TODO Add parallelization here (spawn tasks, collect handles, and iterate over them joining them?)
             for address in addresses {
-                match &self.ping(address).await {
+                match self.ping(address).await {
                     Ok(res) => {
                         if res.as_str() != "" {
                             valid_ips.push(address)
@@ -321,8 +349,8 @@ impl Client {
         }
     }
 
-    pub async fn raw_send(
-        self: &mut Self,
+    async fn raw_send(
+        self: &mut Arc<Self>,
         data: &[u8],
         target: IpAddr,
     ) -> Result<[u8; DEFAULT_BUFFER_SIZE], QueryError> {
@@ -330,11 +358,20 @@ impl Client {
 
         let mut buffer = [0; DEFAULT_BUFFER_SIZE];
 
-        self.data_sock.connect_timeout(&addr, self.data_timeout)?;
+        let mut sock = retry(
+            Fixed::from(self.ping_timeout)
+                .map(jitter)
+                .take(self.retries),
+            || self.data_lock.write(),
+        )?;
 
-        self.data_sock.send(data)?;
+        sock.connect_timeout(&addr, self.data_timeout)?;
 
-        let result_length = self.data_sock.read(&mut buffer)?;
+        sock.send(data)?;
+
+        let result_length = sock.read(&mut buffer)?;
+
+        drop(sock);
 
         if result_length > 0 {
             Ok(buffer.clone())
@@ -346,7 +383,7 @@ impl Client {
         }
     }
 
-    pub fn parse_raw(self: &mut Self, data: &[u8]) -> Result<WizRPCResponse, QueryError> {
+    fn parse_raw(self: &Arc<Self>, data: &[u8]) -> Result<WizRPCResponse, QueryError> {
         let trimmed = self.trim_slice(data);
         // TODO add error handling
         let trimmed_str = from_utf8(trimmed.as_slice()).unwrap();
@@ -368,7 +405,7 @@ impl Client {
         }
     }
 
-    pub fn trim_slice(self: &mut Self, slice: &[u8]) -> Vec<u8> {
+    fn trim_slice(self: &Arc<Self>, slice: &[u8]) -> Vec<u8> {
         let mut trimmed = Vec::new();
 
         for val in slice {
@@ -378,6 +415,16 @@ impl Client {
         }
 
         trimmed
+    }
+
+    pub fn devices(self: Arc<Self>) -> Result<Vec<Target>, QueryError> {
+        let devices = self.devices_lock.read()?;
+        Ok(devices.clone())
+    }
+
+    pub fn names(self: Arc<Self>) -> Result<Vec<String>, QueryError> {
+        let names = self.names_lock.read()?;
+        Ok(names.clone())
     }
 }
 
@@ -390,15 +437,13 @@ async fn test_client_new() {
 
 #[tokio::test]
 async fn test_ping() {
-    let mut client = Client::default().await.unwrap();
+    let client = Client::default().await.unwrap();
 
     let addr1 = IpAddr::from_str("192.168.0.88").unwrap();
     let addr2 = IpAddr::from_str("192.168.0.89").unwrap();
 
     client.ping(addr1).await.unwrap();
     client.ping(addr2).await.unwrap();
-
-    drop(client);
 }
 
 #[tokio::test]
@@ -406,9 +451,7 @@ async fn test_client_discover() {
     // FIXME for some reason here the ping to valid addresses fails. It's weird.
     let mut client = Client::default().await.unwrap();
 
-    client = client.discover().await.unwrap();
+    client.discover().await.unwrap();
 
-    assert_ne!(client.devices.len(), 0);
-
-    drop(client);
+    assert_ne!(client.devices().unwrap().len(), 0);
 }
