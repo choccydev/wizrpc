@@ -35,7 +35,7 @@ lazy_static! {
 
 #[derive(Debug)]
 pub struct Client {
-    // TODO add a fucking semaphore queue goddamnit
+    // TODO:Major add a fucking semaphore queue goddamnit
     pub address: SockAddr,
     pub host: IpAddr,
     names_lock: RwLock<Vec<String>>,
@@ -380,7 +380,7 @@ impl Client {
         }
     }
 
-    async fn raw_send(
+    pub async fn send_raw(
         self: &mut Arc<Self>,
         data: &[u8],
         target: IpAddr,
@@ -485,6 +485,18 @@ async fn test_ping() {
 
     client.ping(addr1).await.unwrap();
     client.ping(addr2).await.unwrap();
+}
+
+#[tokio::test]
+async fn test_send() {
+    let mut client = Client::default().await.unwrap();
+
+    let addr1 = IpAddr::from_str("192.168.0.88").unwrap();
+
+    client
+        .send_raw("{\"method\": \"reboot\"}".as_bytes(), addr1)
+        .await
+        .unwrap();
 }
 
 #[tokio::test]
