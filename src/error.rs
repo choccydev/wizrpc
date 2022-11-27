@@ -2,7 +2,7 @@ use super::model::RPCError;
 use serde_json::value::RawValue;
 use thiserror::Error;
 
-#[derive(Error, Debug)]
+#[derive(Error, Debug, Clone)]
 pub enum WizNetError {
     #[error("Invalid JSON was received by the server. An error occurred on the server while parsing the JSON text:  {data:#?}")]
     Parse { data: Option<Box<RawValue>> },
@@ -74,7 +74,7 @@ pub enum QueryError {
     #[error(transparent)]
     Network(std::io::Error),
 }
-#[derive(Error, Debug)]
+#[derive(Error, Debug, Clone, Copy)]
 pub enum SerializationError {
     #[error("Failed getting MAC address of device")]
     MacAddressError,
@@ -86,4 +86,10 @@ pub enum SerializationError {
     ValueDeserialization,
     #[error("Failed converting bytes to str")]
     StrFromBytes,
+}
+
+impl From<std::io::Error> for QueryError {
+    fn from(err: std::io::Error) -> Self {
+        QueryError::Network(err)
+    }
 }

@@ -5,10 +5,9 @@ use macaddr::MacAddr6;
 use rand::{thread_rng, Rng};
 use serde::Deserialize;
 use serde_json::{value::RawValue, Value};
-use std::str::FromStr;
 use std::string::ToString;
+use std::{net::IpAddr, str::FromStr};
 use strum_macros::{Display, EnumString};
-use url::Host;
 
 lazy_static! {}
 
@@ -66,9 +65,11 @@ pub enum MethodNames {
     Registration,
 }
 
+// TODO provide data structures with Options for ALL potential result keys, method keys, etc to give to the deserializer
+
 #[derive(Debug, Clone)]
 pub struct Fingerprint {
-    pub device: MacAddr6,
+    pub device: Option<MacAddr6>,
     pub id: Option<i32>,
 }
 
@@ -88,7 +89,7 @@ impl Fingerprint {
         );
 
         Ok(Self {
-            device: mac,
+            device: Some(mac),
             id: Some(thread_rng().gen()),
         })
     }
@@ -97,12 +98,12 @@ impl Fingerprint {
 #[derive(Debug, Clone)]
 pub struct Target {
     pub name: String,
-    pub address: Host,
+    pub address: IpAddr,
     pub device: MacAddr6,
 }
 
 impl Target {
-    pub fn new(address: Host, mac: MacAddr6, name: Option<String>) -> Self {
+    pub fn new(address: IpAddr, mac: MacAddr6, name: Option<String>) -> Self {
         Self {
             name: if let Some(good_name) = name {
                 good_name
@@ -134,12 +135,12 @@ pub struct RPCError {
 pub struct RPCResult {
     pub method: String,
     pub env: String,
-    pub result: Option<Box<RawValue>>,
+    pub result: Option<Value>,
     pub id: Option<i32>,
 }
 
 impl RPCResult {
-    pub fn to_wizres(self: Self, mac: MacAddr6) -> Result<WizRPCResponse, QueryError> {
+    pub fn to_wizres(self: Self, mac: Option<MacAddr6>) -> Result<WizRPCResponse, QueryError> {
         Ok(WizRPCResponse {
             method: if let Ok(method_name) = MethodNames::from_str(self.method.as_str()) {
                 method_name
@@ -228,7 +229,7 @@ pub struct WizRPCRequest {
 }
 
 impl WizRPCRequest {
-    pub fn new(address: Host, method: MethodNames, params: Option<Value>) -> Self {
+    pub fn new(address: IpAddr, method: MethodNames, params: Option<Value>) -> Self {
         todo!()
     }
     pub fn to_raw(self: Self) -> Box<[u8]> {
