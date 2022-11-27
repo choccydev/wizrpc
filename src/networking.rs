@@ -8,7 +8,7 @@ use macaddr::MacAddr6;
 use retry::delay::{jitter, Fixed};
 use retry::retry;
 use socket2::{Domain, Protocol, SockAddr, Socket, Type};
-use std::io::Read;
+use std::io::{ErrorKind, Read};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::str::{from_utf8, FromStr};
 use std::sync::{Arc, RwLock};
@@ -35,6 +35,7 @@ lazy_static! {
 
 #[derive(Debug)]
 pub struct Client {
+    // TODO add a fucking semaphore queue goddamnit
     pub address: SockAddr,
     pub host: IpAddr,
     names_lock: RwLock<Vec<String>>,
@@ -234,17 +235,27 @@ impl Client {
         let mut buffer = [0; DEFAULT_BUFFER_SIZE];
 
         let mut sock = retry(
-            Fixed::from(self.ping_timeout)
-                .map(jitter)
-                .take(self.retries),
+            Fixed::from(self.ping_timeout / 8)
+                //  .map(jitter)
+                .take(self.retries * 4),
             || self.ping_lock.write(),
         )?;
 
         sock.connect(&addr)?;
 
-        sock.send("{\"method\":\"getSystemConfig\"}".as_bytes())?;
+        retry(
+            Fixed::from(self.ping_timeout)
+                .map(jitter)
+                .take(self.retries),
+            || sock.send("{\"method\":\"getSystemConfig\"}".as_bytes()),
+        )?;
 
-        let result_length = sock.read(&mut buffer)?;
+        let result_length = retry(
+            Fixed::from(self.ping_timeout / 8)
+                //   .map(jitter)
+                .take(self.retries * 4),
+            || sock.read(&mut buffer),
+        )?;
 
         drop(sock);
 
@@ -327,8 +338,8 @@ impl Client {
             }
 
             let mut valid_ips = Vec::new();
+            let mut remainders = Vec::new();
 
-            // TODO Add parallelization here (spawn tasks, collect handles, and iterate over them joining them?)
             for address in addresses {
                 match self.ping(address).await {
                     Ok(res) => {
@@ -336,8 +347,28 @@ impl Client {
                             valid_ips.push(address)
                         }
                     }
-                    Err(_) => {}
+                    Err(err) => match err {
+                        QueryError::Network(net_err) => {
+                            if net_err.kind() == ErrorKind::WouldBlock {
+                                remainders.push(address);
+                            }
+                        }
+                        _ => {}
+                    },
                 };
+            }
+
+            if remainders.len() > 0 {
+                for address in remainders {
+                    match self.ping(address).await {
+                        Ok(res) => {
+                            if res.as_str() != "" {
+                                valid_ips.push(address)
+                            }
+                        }
+                        Err(_) => {}
+                    };
+                }
             }
 
             Ok(valid_ips)
@@ -359,17 +390,27 @@ impl Client {
         let mut buffer = [0; DEFAULT_BUFFER_SIZE];
 
         let mut sock = retry(
-            Fixed::from(self.ping_timeout)
+            Fixed::from(self.data_timeout / 4)
                 .map(jitter)
-                .take(self.retries),
+                .take(self.retries * 4),
             || self.data_lock.write(),
         )?;
 
-        sock.connect_timeout(&addr, self.data_timeout)?;
+        sock.connect(&addr)?;
 
-        sock.send(data)?;
+        retry(
+            Fixed::from(self.data_timeout)
+                .map(jitter)
+                .take(self.retries),
+            || sock.send(data),
+        )?;
 
-        let result_length = sock.read(&mut buffer)?;
+        let result_length = retry(
+            Fixed::from(self.data_timeout / 4)
+                .map(jitter)
+                .take(self.retries * 4),
+            || sock.read(&mut buffer),
+        )?;
 
         drop(sock);
 
@@ -448,7 +489,6 @@ async fn test_ping() {
 
 #[tokio::test]
 async fn test_client_discover() {
-    // FIXME for some reason here the ping to valid addresses fails. It's weird.
     let mut client = Client::default().await.unwrap();
 
     client.discover().await.unwrap();

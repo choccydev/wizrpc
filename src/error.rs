@@ -105,6 +105,12 @@ impl From<std::io::Error> for QueryError {
     }
 }
 
+impl From<retry::Error<std::io::Error>> for QueryError {
+    fn from(err: retry::Error<std::io::Error>) -> Self {
+        QueryError::Network(err.error)
+    }
+}
+
 impl From<retry::Error<PoisonError<RwLockWriteGuard<'_, Socket>>>> for QueryError {
     fn from(_: retry::Error<PoisonError<RwLockWriteGuard<'_, Socket>>>) -> Self {
         QueryError::Sync(SyncError::MutexLock)
