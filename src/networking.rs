@@ -17,7 +17,6 @@ use tokio::sync::Mutex;
 
 pub const DEFAULT_BUFFER_SIZE: usize = 1024;
 pub const DEFAULT_RETRIES: usize = 3;
-pub const DEFAULT_SEMAPHORE_SIZE: usize = 1;
 lazy_static! {
     pub static ref DEFAULT_TARGET_PORT: u16 = 38899;
     pub static ref DEFAULT_SOURCE_DATA_PORT: u16 = 39900;
@@ -37,7 +36,7 @@ lazy_static! {
 
 #[derive(Debug)]
 pub struct Client {
-    // TODO:Major add a fucking semaphore queue goddamnit
+    // TODO:Major Add a batcher/syncer queue to prevent WouldBlocks
     pub address: SockAddr,
     pub host: IpAddr,
     names_lock: RwLock<Vec<String>>,
@@ -57,7 +56,6 @@ impl Client {
         data_timeout_ms: Option<u64>,
         buffer_size: Option<usize>,
         retries: Option<usize>,
-        semaphore_size: Option<usize>,
     ) -> Result<Arc<Self>, QueryError> {
         let addr = SockAddr::from(SocketAddr::new(
             if let Some(addr) = bind_addr {
@@ -131,29 +129,70 @@ impl Client {
     }
 
     pub async fn default() -> Result<Arc<Self>, QueryError> {
-        Ok(Client::new(None, None, None, None, None, None, None).await?)
+        Ok(Client::new(None, None, None, None, None, None).await?)
     }
 
-    pub async fn discover(self: &mut Arc<Self>) -> Result<(), QueryError> {
+    pub async fn send(
+        self: &Arc<Self>,
+        request: WizRPCRequest,
+    ) -> Result<WizRPCResponse, QueryError> {
+        let device = self.get_device(&request.device)?;
+        let raw_request = request.to_raw()?;
+
+        Ok(self
+            .send_raw_parsed(&raw_request, device.address, Some(device.mac))
+            .await?)
+    }
+
+    pub async fn register(
+        self: &Arc<Self>,
+        name: String,
+        address: String,
+    ) -> Result<(), QueryError> {
+        let ip = self.get_ip(address)?;
+        let is_device = self.raw_ping(ip).await?;
+
+        if is_device {
+            let mac = self.get_mac(ip).await?;
+            let mut devices = self.devices_lock.write()?;
+            devices.push(Target::new(ip, mac, Some(name)));
+            drop(devices);
+            self.update_names()?;
+            Ok(())
+        } else {
+            Err(QueryError::Network(std::io::Error::new(
+                ErrorKind::Other,
+                "Ping responded, but with unexpected data",
+            )))
+        }
+    }
+
+    pub async fn discover(self: &Arc<Self>) -> Result<(), QueryError> {
         self.update_discovery().await?;
         self.update_names()?;
         Ok(())
     }
 
-    pub async fn send(
-        request: WizRPCRequest,
-        device: String,
-    ) -> Result<WizRPCResponse, QueryError> {
-        todo!()
+    fn get_device(self: &Arc<Self>, device: &String) -> Result<Target, QueryError> {
+        let devices = self.devices_lock.read()?;
+        let names = self.names_lock.read()?;
+
+        for (index, name) in names.iter().enumerate() {
+            if name == device {
+                return Ok(devices[index].clone());
+            }
+        }
+
+        Err(QueryError::Serialization(SerializationError::NameNotFound))
     }
 
-    async fn update_discovery(self: &mut Arc<Self>) -> Result<(), QueryError> {
+    async fn update_discovery(self: &Arc<Self>) -> Result<(), QueryError> {
         let valid_ips = self.scan().await?;
 
         let mut valid_devices = Vec::new();
 
         for ip in valid_ips {
-            if self.ping(ip).await? {
+            if self.raw_ping(ip).await? {
                 valid_devices.push(ip);
             }
         }
@@ -164,12 +203,14 @@ impl Client {
 
             let mut devices = self.devices_lock.write()?;
             devices.push(Target::new(host, mac, None));
+            drop(devices);
         }
 
         Ok(())
     }
 
     fn update_names(self: &Arc<Self>) -> Result<(), QueryError> {
+        // FIXME this is broken, RWLock never opens the read for some reason
         let devices = self.devices_lock.read()?;
         let mut names = self.names_lock.write()?;
         let mut names_data: Vec<String> = devices
@@ -188,11 +229,13 @@ impl Client {
     }
 
     async fn get_mac(self: &Arc<Self>, address: IpAddr) -> Result<MacAddr6, QueryError> {
-        let response = self.parse_raw(
-            &self
-                .send_raw("{\"method\": \"getSystemConfig\"}".as_bytes(), address)
-                .await?,
-        )?;
+        let response = self
+            .send_raw_parsed(
+                "{\"method\": \"getSystemConfig\"}".as_bytes(),
+                address,
+                None,
+            )
+            .await?;
 
         let params = response.result.ok_or(QueryError::Serialization(
             SerializationError::ValueDeserialization,
@@ -210,7 +253,12 @@ impl Client {
         }
     }
 
-    async fn ping(self: &Arc<Self>, target: IpAddr) -> Result<bool, QueryError> {
+    pub async fn ping(self: &Arc<Self>, device: String) -> Result<bool, QueryError> {
+        let target = self.get_device(&device)?;
+        self.raw_ping(target.address).await
+    }
+
+    async fn raw_ping(self: &Arc<Self>, target: IpAddr) -> Result<bool, QueryError> {
         let addr = SockAddr::from(SocketAddr::new(target, *DEFAULT_TARGET_PORT));
 
         let mut buffer = [0; DEFAULT_BUFFER_SIZE];
@@ -240,10 +288,10 @@ impl Client {
         drop(sock);
 
         if result_length > 0 {
-            let good_response = match self.parse_raw(&buffer) {
+            let good_response = match self.parse_raw(&buffer, None) {
                 Ok(_) => false,
                 Err(err) => match err {
-                    QueryError::RPC(WizNetError::MethodNotFound { data }) => true,
+                    QueryError::RPC(WizNetError::MethodNotFound { data: _ }) => true,
                     _ => Err(err)?,
                 },
             };
@@ -257,7 +305,7 @@ impl Client {
         }
     }
 
-    async fn scan(self: &mut Arc<Self>) -> Result<Vec<IpAddr>, QueryError> {
+    async fn scan(self: &Arc<Self>) -> Result<Vec<IpAddr>, QueryError> {
         if self.host.is_ipv4() {
             let mut host_parts: Vec<u8> = Vec::new();
             let host_string = self.host.to_string();
@@ -314,7 +362,7 @@ impl Client {
             let mut remainders = Vec::new();
 
             for address in addresses {
-                match self.ping(address).await {
+                match self.raw_ping(address).await {
                     Ok(res) => {
                         if res {
                             valid_ips.push(address)
@@ -333,7 +381,7 @@ impl Client {
 
             if remainders.len() > 0 {
                 for address in remainders {
-                    match self.ping(address).await {
+                    match self.raw_ping(address).await {
                         Ok(res) => {
                             if res {
                                 valid_ips.push(address)
@@ -353,7 +401,7 @@ impl Client {
         }
     }
 
-    pub async fn send_raw(
+    async fn send_raw(
         self: &Arc<Self>,
         data: &[u8],
         target: IpAddr,
@@ -396,7 +444,11 @@ impl Client {
         }
     }
 
-    fn parse_raw(self: &Arc<Self>, data: &[u8]) -> Result<WizRPCResponse, QueryError> {
+    fn parse_raw(
+        self: &Arc<Self>,
+        data: &[u8],
+        mac: Option<MacAddr6>,
+    ) -> Result<WizRPCResponse, QueryError> {
         let trimmed = self.trim_slice(data);
         // TODO add error handling
         let trimmed_str = from_utf8(trimmed.as_slice()).unwrap();
@@ -413,9 +465,18 @@ impl Client {
             )),
             Ok(deserialized) => match deserialized {
                 RPCResponse::Err(err) => Err(QueryError::RPC(WizNetError::from_rpc_error(err))),
-                RPCResponse::Ok(res) => res.to_wizres(None),
+                RPCResponse::Ok(res) => res.to_wizres(mac),
             },
         }
+    }
+
+    async fn send_raw_parsed(
+        self: &Arc<Self>,
+        data: &[u8],
+        target: IpAddr,
+        mac: Option<MacAddr6>,
+    ) -> Result<WizRPCResponse, QueryError> {
+        Ok(self.parse_raw(&self.send_raw(data, target).await?, mac)?)
     }
 
     fn trim_slice(self: &Arc<Self>, slice: &[u8]) -> Vec<u8> {
@@ -440,100 +501,3 @@ impl Client {
         Ok(names.clone())
     }
 }
-
-#[tokio::test]
-async fn test_client_new() {
-    Client::default().await.unwrap();
-}
-#[tokio::test]
-async fn test_ping() {
-    let client = Client::default().await.unwrap();
-
-    let addr1 = IpAddr::from_str("192.168.0.88").unwrap();
-    let addr2 = IpAddr::from_str("192.168.0.89").unwrap();
-
-    client.ping(addr1).await.unwrap();
-    client.ping(addr2).await.unwrap();
-}
-
-#[tokio::test]
-async fn test_ping_queue() {
-    let client = Client::default().await.unwrap();
-
-    let addr1 = IpAddr::from_str("192.168.0.88").unwrap();
-
-    let amount = 0..5;
-
-    for _ in amount {
-        client.ping(addr1).await.unwrap();
-    }
-}
-
-#[tokio::test]
-async fn test_ping_big_queue() {
-    let client = Client::default().await.unwrap();
-
-    let addr1 = IpAddr::from_str("192.168.0.88").unwrap();
-
-    let amount = 0..50;
-
-    for _ in amount {
-        client.ping(addr1).await.unwrap();
-    }
-}
-
-#[tokio::test]
-async fn test_ping_large_queue() {
-    let client = Client::default().await.unwrap();
-
-    let addr1 = IpAddr::from_str("192.168.0.88").unwrap();
-
-    let amount = 0..100;
-
-    for _ in amount {
-        client.ping(addr1).await.unwrap();
-    }
-}
-
-#[tokio::test]
-async fn test_send() {
-    let mut client = Client::default().await.unwrap();
-
-    let addr1 = IpAddr::from_str("192.168.0.88").unwrap();
-
-    client
-        .send_raw("{\"method\": \"reboot\"}".as_bytes(), addr1)
-        .await
-        .unwrap();
-}
-
-#[tokio::test]
-async fn test_send_and_parse() {
-    let mut client = Client::default().await.unwrap();
-
-    let addr1 = IpAddr::from_str("192.168.0.88").unwrap();
-
-    let module = client
-        .parse_raw(
-            &client
-                .send_raw("{\"method\": \"getSystemConfig\"}".as_bytes(), addr1)
-                .await
-                .unwrap(),
-        )
-        .unwrap()
-        .result
-        .unwrap()
-        .module_name
-        .unwrap();
-
-    assert_eq!(module.as_str(), "ESP01_SHRGB1C_31");
-}
-
-// #[tokio::test]
-// async fn test_client_discover() {
-//     let mut client = Client::default().await.unwrap();
-
-//     client.discover().await.unwrap();
-
-//     assert_ne!(client.devices().unwrap().len(), 0);
-// }

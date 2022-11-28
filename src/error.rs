@@ -91,6 +91,10 @@ pub enum SerializationError {
     ValueDeserialization,
     #[error("Failed converting bytes to str")]
     StrFromBytes,
+    #[error("Falied to find a device with a matching name")]
+    NameNotFound,
+    #[error("Serde error")]
+    Serde,
 }
 
 #[derive(Error, Debug, Clone, Copy)]
@@ -102,6 +106,12 @@ pub enum SyncError {
 impl From<std::io::Error> for QueryError {
     fn from(err: std::io::Error) -> Self {
         QueryError::Network(err)
+    }
+}
+
+impl From<serde_json::Error> for QueryError {
+    fn from(_: serde_json::Error) -> Self {
+        QueryError::Serialization(SerializationError::Serde)
     }
 }
 

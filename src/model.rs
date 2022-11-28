@@ -4,6 +4,7 @@ use mac_address::get_mac_address;
 use macaddr::MacAddr6;
 use rand::{thread_rng, Rng};
 use serde::Deserialize;
+use serde::Serialize;
 use serde_json::Number;
 use serde_json::Value;
 use std::string::ToString;
@@ -127,7 +128,7 @@ impl Fingerprint {
 pub struct Target {
     pub name: String,
     pub address: IpAddr,
-    pub device: MacAddr6,
+    pub mac: MacAddr6,
 }
 
 impl Target {
@@ -139,7 +140,7 @@ impl Target {
                 mac.to_string()
             },
             address: address,
-            device: mac,
+            mac,
         }
     }
 }
@@ -203,7 +204,7 @@ pub enum RPCResponse {
     Err(RPCError),
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Serialize)]
 pub struct RPCRequest {
     pub method: String,
     pub params: Option<Value>,
@@ -223,38 +224,25 @@ impl RPCRequest {
             id: Some(thread_rng().gen()),
         }
     }
-
-    pub fn from_wizreq(request: WizRPCRequest) -> Self {
-        Self::new(request.method, request.params)
-    }
-}
-
-pub enum WizEnv {
-    Pro,
-    Unknown,
-}
-
-impl WizEnv {
-    fn from_string(env: String) -> Self {
-        match env.as_str() {
-            "pro" => Self::Pro,
-            _ => Self::Unknown,
-        }
-    }
 }
 
 pub struct WizRPCRequest {
-    pub target: Target,
+    pub device: String,
     pub method: MethodNames,
     pub params: Option<Value>,
 }
 
 impl WizRPCRequest {
-    pub fn new(address: IpAddr, method: MethodNames, params: Option<Value>) -> Self {
-        todo!()
+    pub fn new(device: String, method: MethodNames, params: Option<Value>) -> Self {
+        WizRPCRequest {
+            device: device,
+            method: method,
+            params: params,
+        }
     }
-    pub fn to_raw(self: Self) -> Box<[u8]> {
-        todo!()
+    pub fn to_raw(self: Self) -> Result<Vec<u8>, QueryError> {
+        let request = RPCRequest::new(self.method, self.params);
+        Ok(Vec::from(serde_json::to_string(&request)?.as_bytes()))
     }
 }
 
@@ -262,10 +250,4 @@ pub struct WizRPCResponse {
     pub method: MethodNames,
     pub result: Option<ResponseParams>,
     pub fingerprint: Option<Fingerprint>,
-}
-
-impl WizRPCResponse {
-    pub fn from_rpc_result(result: RPCResult) -> Self {
-        todo!()
-    }
 }
