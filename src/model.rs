@@ -1,6 +1,5 @@
 use crate::error::{QueryError, SerializationError};
 use lazy_static::lazy_static;
-use mac_address::get_mac_address;
 use macaddr::MacAddr6;
 use rand::{thread_rng, Rng};
 use serde::Deserialize;
@@ -100,28 +99,6 @@ pub struct ResponseParams {
 pub struct Fingerprint {
     pub device: Option<MacAddr6>,
     pub id: Option<i32>,
-}
-
-impl Fingerprint {
-    pub fn new() -> Result<Self, QueryError> {
-        let mac = MacAddr6::from(
-            match get_mac_address() {
-                Ok(addr) => Ok(addr),
-                Err(_) => Err(QueryError::Serialization(
-                    SerializationError::MacAddressError,
-                )),
-            }?
-            .ok_or(QueryError::Serialization(
-                SerializationError::MacAddressError,
-            ))?
-            .bytes(),
-        );
-
-        Ok(Self {
-            device: Some(mac),
-            id: Some(thread_rng().gen()),
-        })
-    }
 }
 
 #[derive(Debug, Clone)]
