@@ -1,6 +1,6 @@
 use crate::model::RPCError;
 use crate::model::Target;
-use serde_json::value::RawValue;
+use serde_json::Value;
 use socket2::Socket;
 use std::sync::{PoisonError, RwLockReadGuard, RwLockWriteGuard};
 use thiserror::Error;
@@ -8,24 +8,24 @@ use thiserror::Error;
 #[derive(Error, Debug, Clone)]
 pub enum WizNetError {
     #[error("Invalid JSON was received by the server. An error occurred on the server while parsing the JSON text:  {data:#?}")]
-    Parse { data: Option<Box<RawValue>> },
+    Parse { data: Option<Value> },
     #[error("The JSON sent is not a valid Request object: {data:#?}")]
-    InvalidRequest { data: Option<Box<RawValue>> },
+    InvalidRequest { data: Option<Value> },
     #[error("Invalid method parameter(s): {data:#?}")]
-    InvalidParameters { data: Option<Box<RawValue>> },
+    InvalidParameters { data: Option<Value> },
     #[error("The method does not exist / is not available: {data:#?}")]
-    MethodNotFound { data: Option<Box<RawValue>> },
+    MethodNotFound { data: Option<Value> },
     #[error("Internal JSON-RPC error: {data:#?}")]
-    Internal { data: Option<Box<RawValue>> },
+    Internal { data: Option<Value> },
     #[error("{message:?}: {data:#?}")]
     Server {
         message: String,
-        data: Option<Box<RawValue>>,
+        data: Option<Value>,
     },
     #[error("Unknown error; {message:?}: {data:#?}")]
     Unknown {
         message: String,
-        data: Option<Box<RawValue>>,
+        data: Option<Value>,
     },
     #[error("Target is not a wiz device or returned bogus data")]
     NotAWizDevice,

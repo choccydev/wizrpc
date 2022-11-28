@@ -13,9 +13,11 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::str::{from_utf8, FromStr};
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
+use tokio::sync::Mutex;
 
 pub const DEFAULT_BUFFER_SIZE: usize = 1024;
 pub const DEFAULT_RETRIES: usize = 3;
+pub const DEFAULT_SEMAPHORE_SIZE: usize = 1;
 lazy_static! {
     pub static ref DEFAULT_TARGET_PORT: u16 = 38899;
     pub static ref DEFAULT_SOURCE_DATA_PORT: u16 = 39900;
@@ -40,52 +42,14 @@ pub struct Client {
     pub host: IpAddr,
     names_lock: RwLock<Vec<String>>,
     devices_lock: RwLock<Vec<Target>>,
-    ping_lock: RwLock<Socket>,
-    data_lock: RwLock<Socket>,
+    ping_lock: Mutex<Socket>,
+    data_lock: Mutex<Socket>,
     ping_timeout: Duration,
     data_timeout: Duration,
-    buffer_size: usize,
     retries: usize,
 }
 
 impl Client {
-    pub async fn default() -> Result<Arc<Self>, QueryError> {
-        let data_sock = Socket::new(Domain::IPV4, Type::DGRAM, Some(Protocol::UDP))?;
-        data_sock.set_reuse_address(true)?;
-        data_sock.set_reuse_port(true)?;
-        data_sock.set_read_timeout(Some(*DEFAULT_DATA_TIMEOUT))?;
-        data_sock.set_write_timeout(Some(*DEFAULT_DATA_TIMEOUT))?;
-        data_sock.set_send_buffer_size(DEFAULT_BUFFER_SIZE)?;
-        data_sock.set_recv_buffer_size(DEFAULT_BUFFER_SIZE)?;
-        data_sock.set_reuse_port(true)?;
-        data_sock.bind(&DEFAULT_SOCK_DATA_ADDRESS)?;
-
-        // ??? why it needs elevated permissions wtf
-        let ping_sock = Socket::new(Domain::IPV4, Type::DGRAM, Some(Protocol::UDP))?;
-        ping_sock.set_reuse_address(true)?;
-        ping_sock.set_reuse_port(true)?;
-        ping_sock.set_read_timeout(Some(*DEFAULT_PING_TIMEOUT))?;
-        ping_sock.set_write_timeout(Some(*DEFAULT_PING_TIMEOUT))?;
-        ping_sock.set_send_buffer_size(DEFAULT_BUFFER_SIZE)?;
-        ping_sock.set_recv_buffer_size(DEFAULT_BUFFER_SIZE)?;
-        ping_sock.set_reuse_port(true)?;
-
-        let host = data_sock.local_addr().unwrap().as_socket().unwrap().ip();
-
-        Ok(Arc::new(Client {
-            names_lock: RwLock::new(Vec::new()),
-            devices_lock: RwLock::new(Vec::new()),
-            data_lock: RwLock::new(data_sock),
-            ping_lock: RwLock::new(ping_sock),
-            ping_timeout: *DEFAULT_PING_TIMEOUT,
-            data_timeout: *DEFAULT_DATA_TIMEOUT,
-            buffer_size: DEFAULT_BUFFER_SIZE,
-            retries: DEFAULT_RETRIES,
-            address: DEFAULT_SOCK_DATA_ADDRESS.clone(),
-            host: host,
-        }))
-    }
-
     pub async fn new(
         bind_addr: Option<IpAddr>,
         bind_port: Option<u16>,
@@ -93,6 +57,7 @@ impl Client {
         data_timeout_ms: Option<u64>,
         buffer_size: Option<usize>,
         retries: Option<usize>,
+        semaphore_size: Option<usize>,
     ) -> Result<Arc<Self>, QueryError> {
         let addr = SockAddr::from(SocketAddr::new(
             if let Some(addr) = bind_addr {
@@ -135,7 +100,7 @@ impl Client {
             *DEFAULT_PING_TIMEOUT
         };
 
-        let ping_sock = Socket::new(Domain::IPV4, Type::RAW, Some(Protocol::ICMPV4))?;
+        let ping_sock = Socket::new(Domain::IPV4, Type::DGRAM, Some(Protocol::UDP))?;
         ping_sock.set_reuse_address(true)?;
         ping_sock.set_reuse_port(true)?;
         ping_sock.set_read_timeout(Some(ping_timeout))?;
@@ -155,15 +120,18 @@ impl Client {
         Ok(Arc::new(Client {
             names_lock: RwLock::new(Vec::new()),
             devices_lock: RwLock::new(Vec::new()),
-            data_lock: RwLock::new(data_sock),
-            ping_lock: RwLock::new(ping_sock),
+            data_lock: Mutex::new(data_sock),
+            ping_lock: Mutex::new(ping_sock),
             ping_timeout: ping_timeout,
             data_timeout: data_timeout,
-            buffer_size: buffer,
             retries: retry,
             address: addr,
             host: host,
         }))
+    }
+
+    pub async fn default() -> Result<Arc<Self>, QueryError> {
+        Ok(Client::new(None, None, None, None, None, None, None).await?)
     }
 
     pub async fn discover(self: &mut Arc<Self>) -> Result<(), QueryError> {
@@ -185,7 +153,7 @@ impl Client {
         let mut valid_devices = Vec::new();
 
         for ip in valid_ips {
-            if self.ping(ip).await?.as_str() != "" {
+            if self.ping(ip).await? {
                 valid_devices.push(ip);
             }
         }
@@ -220,7 +188,20 @@ impl Client {
     }
 
     async fn get_mac(self: &Arc<Self>, address: IpAddr) -> Result<MacAddr6, QueryError> {
-        let mac = self.ping(address).await?;
+        let response = self.parse_raw(
+            &self
+                .send_raw("{\"method\": \"getSystemConfig\"}".as_bytes(), address)
+                .await?,
+        )?;
+
+        let params = response.result.ok_or(QueryError::Serialization(
+            SerializationError::ValueDeserialization,
+        ))?;
+
+        let mac = params.mac.ok_or(QueryError::Serialization(
+            SerializationError::ValueDeserialization,
+        ))?;
+
         match MacAddr6::from_str(&mac) {
             Ok(macaddr) => Ok(macaddr),
             Err(_) => Err(QueryError::Serialization(
@@ -229,17 +210,12 @@ impl Client {
         }
     }
 
-    async fn ping(self: &Arc<Self>, target: IpAddr) -> Result<String, QueryError> {
+    async fn ping(self: &Arc<Self>, target: IpAddr) -> Result<bool, QueryError> {
         let addr = SockAddr::from(SocketAddr::new(target, *DEFAULT_TARGET_PORT));
 
         let mut buffer = [0; DEFAULT_BUFFER_SIZE];
 
-        let mut sock = retry(
-            Fixed::from(self.ping_timeout / 8)
-                //  .map(jitter)
-                .take(self.retries * 4),
-            || self.ping_lock.write(),
-        )?;
+        let mut sock = self.ping_lock.lock().await;
 
         sock.connect(&addr)?;
 
@@ -247,35 +223,32 @@ impl Client {
             Fixed::from(self.ping_timeout)
                 .map(jitter)
                 .take(self.retries),
-            || sock.send("{\"method\":\"getSystemConfig\"}".as_bytes()),
+            || sock.send("{}".as_bytes()),
         )?;
 
-        let result_length = retry(
-            Fixed::from(self.ping_timeout / 8)
-                //   .map(jitter)
-                .take(self.retries * 4),
-            || sock.read(&mut buffer),
-        )?;
+        let result_length = match sock.read(&mut buffer) {
+            Ok(len) => len,
+            Err(err) => {
+                if err.kind() == ErrorKind::Interrupted {
+                    sock.read(&mut buffer)?
+                } else {
+                    Err(err)?
+                }
+            }
+        };
 
         drop(sock);
 
         if result_length > 0 {
-            let response = self.parse_raw(&buffer)?;
-            let result = response.result.ok_or(QueryError::Serialization(
-                SerializationError::ValueDeserialization,
-            ))?;
+            let good_response = match self.parse_raw(&buffer) {
+                Ok(_) => false,
+                Err(err) => match err {
+                    QueryError::RPC(WizNetError::MethodNotFound { data }) => true,
+                    _ => Err(err)?,
+                },
+            };
 
-            let mac = result
-                .get("mac")
-                .ok_or(QueryError::Serialization(
-                    SerializationError::ValueDeserialization,
-                ))?
-                .as_str()
-                .ok_or(QueryError::Serialization(
-                    SerializationError::ValueDeserialization,
-                ))?
-                .clone();
-            return Ok(String::from(mac));
+            return Ok(good_response);
         } else {
             return Err(QueryError::Network(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
@@ -343,7 +316,7 @@ impl Client {
             for address in addresses {
                 match self.ping(address).await {
                     Ok(res) => {
-                        if res.as_str() != "" {
+                        if res {
                             valid_ips.push(address)
                         }
                     }
@@ -362,7 +335,7 @@ impl Client {
                 for address in remainders {
                     match self.ping(address).await {
                         Ok(res) => {
-                            if res.as_str() != "" {
+                            if res {
                                 valid_ips.push(address)
                             }
                         }
@@ -381,7 +354,7 @@ impl Client {
     }
 
     pub async fn send_raw(
-        self: &mut Arc<Self>,
+        self: &Arc<Self>,
         data: &[u8],
         target: IpAddr,
     ) -> Result<[u8; DEFAULT_BUFFER_SIZE], QueryError> {
@@ -389,12 +362,7 @@ impl Client {
 
         let mut buffer = [0; DEFAULT_BUFFER_SIZE];
 
-        let mut sock = retry(
-            Fixed::from(self.data_timeout / 4)
-                .map(jitter)
-                .take(self.retries * 4),
-            || self.data_lock.write(),
-        )?;
+        let mut sock = self.data_lock.lock().await;
 
         sock.connect(&addr)?;
 
@@ -405,12 +373,16 @@ impl Client {
             || sock.send(data),
         )?;
 
-        let result_length = retry(
-            Fixed::from(self.data_timeout / 4)
-                .map(jitter)
-                .take(self.retries * 4),
-            || sock.read(&mut buffer),
-        )?;
+        let result_length = match sock.read(&mut buffer) {
+            Ok(len) => len,
+            Err(err) => {
+                if err.kind() == ErrorKind::Interrupted {
+                    sock.read(&mut buffer)?
+                } else {
+                    Err(err)?
+                }
+            }
+        };
 
         drop(sock);
 
@@ -471,11 +443,8 @@ impl Client {
 
 #[tokio::test]
 async fn test_client_new() {
-    {
-        Client::default().await.unwrap();
-    }
+    Client::default().await.unwrap();
 }
-
 #[tokio::test]
 async fn test_ping() {
     let client = Client::default().await.unwrap();
@@ -485,6 +454,45 @@ async fn test_ping() {
 
     client.ping(addr1).await.unwrap();
     client.ping(addr2).await.unwrap();
+}
+
+#[tokio::test]
+async fn test_ping_queue() {
+    let client = Client::default().await.unwrap();
+
+    let addr1 = IpAddr::from_str("192.168.0.88").unwrap();
+
+    let amount = 0..5;
+
+    for _ in amount {
+        client.ping(addr1).await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn test_ping_big_queue() {
+    let client = Client::default().await.unwrap();
+
+    let addr1 = IpAddr::from_str("192.168.0.88").unwrap();
+
+    let amount = 0..50;
+
+    for _ in amount {
+        client.ping(addr1).await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn test_ping_large_queue() {
+    let client = Client::default().await.unwrap();
+
+    let addr1 = IpAddr::from_str("192.168.0.88").unwrap();
+
+    let amount = 0..100;
+
+    for _ in amount {
+        client.ping(addr1).await.unwrap();
+    }
 }
 
 #[tokio::test]
@@ -500,10 +508,32 @@ async fn test_send() {
 }
 
 #[tokio::test]
-async fn test_client_discover() {
+async fn test_send_and_parse() {
     let mut client = Client::default().await.unwrap();
 
-    client.discover().await.unwrap();
+    let addr1 = IpAddr::from_str("192.168.0.88").unwrap();
 
-    assert_ne!(client.devices().unwrap().len(), 0);
+    let module = client
+        .parse_raw(
+            &client
+                .send_raw("{\"method\": \"getSystemConfig\"}".as_bytes(), addr1)
+                .await
+                .unwrap(),
+        )
+        .unwrap()
+        .result
+        .unwrap()
+        .module_name
+        .unwrap();
+
+    assert_eq!(module.as_str(), "ESP01_SHRGB1C_31");
 }
+
+// #[tokio::test]
+// async fn test_client_discover() {
+//     let mut client = Client::default().await.unwrap();
+
+//     client.discover().await.unwrap();
+
+//     assert_ne!(client.devices().unwrap().len(), 0);
+// }

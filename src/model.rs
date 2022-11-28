@@ -4,7 +4,8 @@ use mac_address::get_mac_address;
 use macaddr::MacAddr6;
 use rand::{thread_rng, Rng};
 use serde::Deserialize;
-use serde_json::{value::RawValue, Value};
+use serde_json::Number;
+use serde_json::Value;
 use std::string::ToString;
 use std::{net::IpAddr, str::FromStr};
 use strum_macros::{Display, EnumString};
@@ -65,6 +66,33 @@ pub enum MethodNames {
     Registration,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResponseParams {
+    pub mac: Option<String>,
+    pub home_id: Option<Number>,
+    pub room_id: Option<Number>,
+    pub group_id: Option<Number>,
+    pub rgn: Option<String>,
+    pub module_name: Option<String>,
+    pub fw_version: Option<String>,
+    pub drv_conf: Option<Vec<Number>>,
+    pub ping: Option<Number>,
+    pub fade_in: Option<Number>,
+    pub fade_out: Option<Number>,
+    pub fade_night: Option<Number>,
+    pub dft_dim: Option<Number>,
+    pub po: Option<bool>,
+    pub min_dimming: Option<Number>,
+    pub rssi: Option<Number>,
+    pub src: Option<String>,
+    pub state: Option<bool>,
+    pub scene_id: Option<Number>,
+    pub temp: Option<Number>,
+    pub dimming: Option<Number>,
+    pub success: Option<bool>,
+}
+
 // TODO provide data structures with Options for ALL potential result keys, method keys, etc to give to the deserializer
 
 #[derive(Debug, Clone)]
@@ -120,7 +148,7 @@ impl Target {
 pub struct RPCErrorData {
     pub code: i32,
     pub message: String,
-    pub data: Option<Box<RawValue>>,
+    pub data: Option<Value>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -135,7 +163,7 @@ pub struct RPCError {
 pub struct RPCResult {
     pub method: String,
     pub env: String,
-    pub result: Option<Value>,
+    pub result: Option<ResponseParams>,
     pub id: Option<i32>,
 }
 
@@ -150,14 +178,7 @@ impl RPCResult {
                 ));
             },
             result: if let Some(res) = self.result {
-                match Value::from_str(res.to_string().as_str()) {
-                    Ok(val) => Some(val),
-                    Err(_) => {
-                        return Err(QueryError::Serialization(
-                            SerializationError::ValueDeserialization,
-                        ))
-                    }
-                }
+                Some(res)
             } else {
                 None
             },
@@ -185,7 +206,7 @@ pub enum RPCResponse {
 #[derive(Clone, Debug, Deserialize)]
 pub struct RPCRequest {
     pub method: String,
-    pub params: Option<Box<RawValue>>,
+    pub params: Option<Value>,
     pub id: Option<i32>,
 }
 
@@ -195,7 +216,7 @@ impl RPCRequest {
         Self {
             method: method.to_string(),
             params: if let Some(parameters) = params {
-                Some(RawValue::from_string(parameters.to_string()).unwrap())
+                Some(parameters)
             } else {
                 None
             },
@@ -239,7 +260,7 @@ impl WizRPCRequest {
 
 pub struct WizRPCResponse {
     pub method: MethodNames,
-    pub result: Option<Value>,
+    pub result: Option<ResponseParams>,
     pub fingerprint: Option<Fingerprint>,
 }
 
