@@ -1,3 +1,4 @@
+use crate::model::RequestParamsFieldType;
 use crate::{Client, WizRPCRequest};
 
 #[tokio::test]
@@ -55,6 +56,55 @@ async fn test_ping_25() {
 }
 
 #[tokio::test]
+async fn test_send_no_params_non_modyfing() {
+    let client = Client::default().await.unwrap();
+
+    client
+        .register("Office".to_string(), "office.wiz.local".to_string())
+        .await
+        .unwrap();
+
+    let request = WizRPCRequest::new(
+        "Office".to_string(),
+        crate::MethodNames::GetSystemConfig,
+        None,
+    );
+    let module = client
+        .send(request)
+        .await
+        .unwrap()
+        .result
+        .unwrap()
+        .module_name
+        .unwrap();
+
+    assert_eq!(module.as_str(), "ESP01_SHRGB1C_31");
+}
+
+#[tokio::test]
+async fn test_send_no_params() {
+    let client = Client::default().await.unwrap();
+
+    client
+        .register("Office".to_string(), "office.wiz.local".to_string())
+        .await
+        .unwrap();
+
+    let request = WizRPCRequest::new("Office".to_string(), crate::MethodNames::Reboot, None);
+
+    let reboot = client
+        .send(request)
+        .await
+        .unwrap()
+        .result
+        .unwrap()
+        .success
+        .unwrap();
+
+    assert_eq!(reboot, true);
+}
+
+#[tokio::test]
 async fn test_send() {
     let client = Client::default().await.unwrap();
 
@@ -65,22 +115,26 @@ async fn test_send() {
 
     let request1 = WizRPCRequest::new(
         "Office".to_string(),
-        crate::MethodNames::GetSystemConfig,
-        None,
+        crate::MethodNames::SetState,
+        Some(vec![RequestParamsFieldType::State(Some(false))]),
     );
 
-    let request2 = WizRPCRequest::new("Office".to_string(), crate::MethodNames::Reboot, None);
+    let request2 = WizRPCRequest::new(
+        "Office".to_string(),
+        crate::MethodNames::SetState,
+        Some(vec![RequestParamsFieldType::State(Some(true))]),
+    );
 
-    let module = client
+    let off = client
         .send(request1)
         .await
         .unwrap()
         .result
         .unwrap()
-        .module_name
+        .success
         .unwrap();
 
-    let reboot = client
+    let on = client
         .send(request2)
         .await
         .unwrap()
@@ -89,8 +143,8 @@ async fn test_send() {
         .success
         .unwrap();
 
-    assert_eq!(module.as_str(), "ESP01_SHRGB1C_31");
-    assert_eq!(reboot, true);
+    assert_eq!(off, true);
+    assert_eq!(on, true);
 }
 
 // #[tokio::test]

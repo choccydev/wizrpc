@@ -1,6 +1,8 @@
 use crate::error::{QueryError, SerializationError};
+use field_types::FieldType;
 use lazy_static::lazy_static;
 use macaddr::MacAddr6;
+use optional_struct::OptionalStruct;
 use rand::{thread_rng, Rng};
 use serde::Deserialize;
 use serde::Serialize;
@@ -67,7 +69,7 @@ pub enum MethodNames {
 }
 
 #[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all(deserialize = "camelCase"))]
 pub struct ResponseParams {
     pub mac: Option<String>,
     pub home_id: Option<Number>,
@@ -93,12 +95,122 @@ pub struct ResponseParams {
     pub success: Option<bool>,
 }
 
-// TODO provide data structures with Options for ALL potential result keys, method keys, etc to give to the deserializer
+#[derive(Debug, Clone, Serialize, OptionalStruct, FieldType)]
+#[optional_derive(Debug, Clone, Serialize)]
+pub struct RequestParams {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub state: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub speed: Option<Number>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ratio: Option<Number>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub brightness: Option<Number>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub temp: Option<Number>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub r: Option<Number>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub g: Option<Number>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub b: Option<Number>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub c: Option<Number>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub w: Option<Number>,
+    #[serde(rename = "sceneId", skip_serializing_if = "Option::is_none")]
+    pub scene_id: Option<Number>,
+    // TODO possibly missing params
+}
+
+impl RequestParams {
+    fn empty() -> Self {
+        RequestParams {
+            state: None,
+            speed: None,
+            ratio: None,
+            brightness: None,
+            temp: None,
+            r: None,
+            g: None,
+            b: None,
+            c: None,
+            w: None,
+            scene_id: None,
+        }
+    }
+}
+
+impl RequestParamsFieldType {
+    fn to_option_struct(self: Self) -> OptionalRequestParams {
+        let mut params_struct = OptionalRequestParams::empty();
+        match self {
+            RequestParamsFieldType::State(state) => {
+                params_struct.state = state;
+                params_struct
+            }
+            RequestParamsFieldType::Speed(speed) => {
+                params_struct.speed = speed;
+                params_struct
+            }
+            RequestParamsFieldType::Ratio(ratio) => {
+                params_struct.ratio = ratio;
+                params_struct
+            }
+            RequestParamsFieldType::Brightness(brightness) => {
+                params_struct.brightness = brightness;
+                params_struct
+            }
+            RequestParamsFieldType::Temp(temp) => {
+                params_struct.temp = temp;
+                params_struct
+            }
+            RequestParamsFieldType::R(r) => {
+                params_struct.r = r;
+                params_struct
+            }
+            RequestParamsFieldType::G(g) => {
+                params_struct.g = g;
+                params_struct
+            }
+            RequestParamsFieldType::B(b) => {
+                params_struct.b = b;
+                params_struct
+            }
+            RequestParamsFieldType::W(w) => {
+                params_struct.w = w;
+                params_struct
+            }
+            RequestParamsFieldType::C(c) => {
+                params_struct.c = c;
+                params_struct
+            }
+            RequestParamsFieldType::SceneId(scene_id) => {
+                params_struct.scene_id = scene_id;
+                params_struct
+            }
+        }
+    }
+}
+
+trait ToStruct {
+    fn to_struct(self) -> RequestParams;
+}
+
+impl ToStruct for Vec<RequestParamsFieldType> {
+    fn to_struct(self) -> RequestParams {
+        let mut params_struct = RequestParams::empty();
+        for param in self {
+            params_struct.apply_options(param.to_option_struct());
+        }
+        params_struct
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct Fingerprint {
     pub device: Option<MacAddr6>,
-    pub id: Option<i32>,
+    pub id: Option<u32>,
 }
 
 #[derive(Debug, Clone)]
@@ -134,7 +246,7 @@ pub struct RPCError {
     pub method: Option<String>,
     pub env: String,
     pub error: RPCErrorData,
-    pub id: Option<i32>,
+    pub id: Option<u32>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -142,7 +254,7 @@ pub struct RPCResult {
     pub method: String,
     pub env: String,
     pub result: Option<ResponseParams>,
-    pub id: Option<i32>,
+    pub id: Option<u32>,
 }
 
 impl RPCResult {
@@ -184,12 +296,14 @@ pub enum RPCResponse {
 #[derive(Clone, Debug, Serialize)]
 pub struct RPCRequest {
     pub method: String,
-    pub params: Option<Value>,
-    pub id: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub params: Option<RequestParams>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<u32>,
 }
 
 impl RPCRequest {
-    pub fn new(method: MethodNames, params: Option<Value>) -> Self {
+    pub fn new(method: MethodNames, params: Option<RequestParams>) -> Self {
         // TODO add error handling
         Self {
             method: method.to_string(),
@@ -206,11 +320,15 @@ impl RPCRequest {
 pub struct WizRPCRequest {
     pub device: String,
     pub method: MethodNames,
-    pub params: Option<Value>,
+    pub params: Option<Vec<RequestParamsFieldType>>,
 }
 
 impl WizRPCRequest {
-    pub fn new(device: String, method: MethodNames, params: Option<Value>) -> Self {
+    pub fn new(
+        device: String,
+        method: MethodNames,
+        params: Option<Vec<RequestParamsFieldType>>,
+    ) -> Self {
         WizRPCRequest {
             device: device,
             method: method,
@@ -218,8 +336,14 @@ impl WizRPCRequest {
         }
     }
     pub fn to_raw(self: Self) -> Result<Vec<u8>, QueryError> {
-        let request = RPCRequest::new(self.method, self.params);
-        Ok(Vec::from(serde_json::to_string(&request)?.as_bytes()))
+        let params = if let Some(params_enum) = self.params {
+            Some(params_enum.to_struct())
+        } else {
+            None
+        };
+        let request = RPCRequest::new(self.method, params);
+        let request_raw = serde_json::to_string(&request)?;
+        Ok(Vec::from(request_raw.as_bytes()))
     }
 }
 
