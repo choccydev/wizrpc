@@ -1,6 +1,6 @@
 use crate::error::{QueryError, SerializationError, WizNetError};
-use crate::model::{RPCResponse, Target, WizRPCRequest};
-use crate::WizRPCResponse;
+use crate::model::{RPCResponse, Target};
+use crate::{Request, Response};
 use dns_lookup::lookup_host;
 use lazy_static::lazy_static;
 use local_ip_address::local_ip;
@@ -132,10 +132,7 @@ impl Client {
         Ok(Client::new(None, None, None, None, None, None).await?)
     }
 
-    pub async fn send(
-        self: &Arc<Self>,
-        request: WizRPCRequest,
-    ) -> Result<WizRPCResponse, QueryError> {
+    pub async fn send(self: &Arc<Self>, request: Request) -> Result<Response, QueryError> {
         let device = self.get_device(&request.device)?;
         let raw_request = request.to_raw()?;
 
@@ -448,7 +445,7 @@ impl Client {
         self: &Arc<Self>,
         data: &[u8],
         mac: Option<MacAddr6>,
-    ) -> Result<WizRPCResponse, QueryError> {
+    ) -> Result<Response, QueryError> {
         let trimmed = self.trim_slice(data);
         // TODO add error handling
         let trimmed_str = from_utf8(trimmed.as_slice()).unwrap();
@@ -475,7 +472,7 @@ impl Client {
         data: &[u8],
         target: IpAddr,
         mac: Option<MacAddr6>,
-    ) -> Result<WizRPCResponse, QueryError> {
+    ) -> Result<Response, QueryError> {
         Ok(self.parse_raw(&self.send_raw(data, target).await?, mac)?)
     }
 

@@ -1,5 +1,4 @@
-use crate::model::RequestParamsFieldType;
-use crate::{Client, WizRPCRequest};
+use crate::{Client, Method, Param, Request};
 
 #[tokio::test]
 async fn test_client_new() {
@@ -64,11 +63,7 @@ async fn test_send_no_params_non_modyfing() {
         .await
         .unwrap();
 
-    let request = WizRPCRequest::new(
-        "Office".to_string(),
-        crate::MethodNames::GetSystemConfig,
-        None,
-    );
+    let request = Request::new("Office".to_string(), Method::GetSystemConfig, None);
     let module = client
         .send(request)
         .await
@@ -90,7 +85,7 @@ async fn test_send_no_params() {
         .await
         .unwrap();
 
-    let request = WizRPCRequest::new("Office".to_string(), crate::MethodNames::Reboot, None);
+    let request = Request::new("Office".to_string(), Method::Reboot, None);
 
     let reboot = client
         .send(request)
@@ -113,16 +108,16 @@ async fn test_send() {
         .await
         .unwrap();
 
-    let request1 = WizRPCRequest::new(
+    let request1 = Request::new(
         "Office".to_string(),
-        crate::MethodNames::SetState,
-        Some(vec![RequestParamsFieldType::State(Some(false))]),
+        Method::SetState,
+        Some(vec![Param::State(Some(false))]),
     );
 
-    let request2 = WizRPCRequest::new(
+    let request2 = Request::new(
         "Office".to_string(),
-        crate::MethodNames::SetState,
-        Some(vec![RequestParamsFieldType::State(Some(true))]),
+        Method::SetState,
+        Some(vec![Param::State(Some(true))]),
     );
 
     let off = client
