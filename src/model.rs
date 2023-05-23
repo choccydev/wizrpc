@@ -1,21 +1,190 @@
+//! owo
+
 use crate::error::{QueryError, SerializationError};
+use crate::Param;
+use debug_helper::impl_debug_for_enum;
 use field_types::FieldType;
-use lazy_static::lazy_static;
 use macaddr::MacAddr6;
-use optional_struct::OptionalStruct;
+use optional_struct::{optional_struct, Applyable};
 use rand::{thread_rng, Rng};
 use serde::Deserialize;
 use serde::Serialize;
 use serde_json::Number;
 use serde_json::Value;
 use std::string::ToString;
-use std::{net::IpAddr, str::FromStr};
+use std::{fmt::Debug, net::IpAddr, str::FromStr};
 use strum_macros::{Display, EnumString};
 
-lazy_static! {}
+#[optional_struct]
+#[derive(Debug, Clone, Serialize, FieldType)]
+pub struct RequestParams {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub state: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub speed: Option<Number>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ratio: Option<Number>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub brightness: Option<Number>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub temp: Option<Number>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub r: Option<Number>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub g: Option<Number>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub b: Option<Number>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub c: Option<Number>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub w: Option<Number>,
+    #[serde(rename = "sceneId", skip_serializing_if = "Option::is_none")]
+    pub scene_id: Option<Number>,
+    // TODO possibly missing params
+}
 
+impl RequestParams {
+    fn empty() -> Self {
+        RequestParams {
+            state: None,
+            speed: None,
+            ratio: None,
+            brightness: None,
+            temp: None,
+            r: None,
+            g: None,
+            b: None,
+            c: None,
+            w: None,
+            scene_id: None,
+        }
+    }
+}
+
+impl OptionalRequestParams {
+    fn empty() -> Self {
+        OptionalRequestParams {
+            state: None,
+            speed: None,
+            ratio: None,
+            brightness: None,
+            temp: None,
+            r: None,
+            g: None,
+            b: None,
+            c: None,
+            w: None,
+            scene_id: None,
+        }
+    }
+}
+
+impl Param {
+    fn to_option_struct(self: Self) -> OptionalRequestParams {
+        let mut params_struct = OptionalRequestParams::empty();
+        match self {
+            Param::State(state) => {
+                params_struct.state = state;
+                params_struct
+            }
+            Param::Speed(speed) => {
+                params_struct.speed = speed;
+                params_struct
+            }
+            Param::Ratio(ratio) => {
+                params_struct.ratio = ratio;
+                params_struct
+            }
+            Param::Brightness(brightness) => {
+                params_struct.brightness = brightness;
+                params_struct
+            }
+            Param::Temp(temp) => {
+                params_struct.temp = temp;
+                params_struct
+            }
+            Param::R(r) => {
+                params_struct.r = r;
+                params_struct
+            }
+            Param::G(g) => {
+                params_struct.g = g;
+                params_struct
+            }
+            Param::B(b) => {
+                params_struct.b = b;
+                params_struct
+            }
+            Param::W(w) => {
+                params_struct.w = w;
+                params_struct
+            }
+            Param::C(c) => {
+                params_struct.c = c;
+                params_struct
+            }
+            Param::SceneId(scene_id) => {
+                params_struct.scene_id = scene_id;
+                params_struct
+            }
+        }
+    }
+}
+
+impl Debug for Param {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        impl_debug_for_enum!(Param::{
+            (State(state): (.state)), 
+            (Speed(speed): (.speed)), 
+            (Ratio(ratio): (.ratio)), 
+            (Brightness(brightness): (.brightness)), 
+            (Temp(temp): (.temp)),
+            (R(r): (.r)),
+            (G(g): (.g)), 
+            (B(b): (.b)), 
+            (W(w): (.w)),
+            (C(c): (.c)),
+            (SceneId(scene_id): (.scene_id))
+        }, f, self);
+    }
+}
+
+impl Clone for Param {
+    fn clone(&self) -> Self {
+        match self {
+            Param::State(state) => Param::State(*state),
+            Param::Speed(speed) => Param::Speed(speed.clone()),
+            Param::Ratio(ratio) => Param::Ratio(ratio.clone()),
+            Param::Brightness(brightness) => Param::Brightness(brightness.clone()),
+            Param::Temp(temp) => Param::Temp(temp.clone()),
+            Param::R(r) => Param::R(r.clone()),
+            Param::G(g) => Param::G(g.clone()),
+            Param::B(b) => Param::B(b.clone()),
+            Param::W(w) => Param::W(w.clone()),
+            Param::C(c) => Param::C(c.clone()),
+            Param::SceneId(scene_id) => Param::SceneId(scene_id.clone()),
+        }
+    }
+}
+
+pub trait ToStruct {
+    fn to_struct(self) -> RequestParams;
+}
+
+impl ToStruct for Vec<Param> {
+    fn to_struct(self) -> RequestParams {
+        let mut params_struct = RequestParams::empty();
+        for param in self {
+            param.to_option_struct().apply_to(&mut params_struct);
+            //params_struct.apply_options();
+        }
+        params_struct
+    }
+}
+
+/// All methods available, both for request and response
 #[derive(Debug, Clone, Copy, Display, EnumString)]
-pub enum MethodNames {
+pub enum Method {
     #[strum(serialize = "getPower")]
     GetPower,
     #[strum(serialize = "getSystemConfig")]
@@ -66,6 +235,8 @@ pub enum MethodNames {
     Pulse,
     #[strum(serialize = "registration")]
     Registration,
+    #[strum(serialize = "PING")]
+    Ping,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -95,124 +266,14 @@ pub struct ResponseParams {
     pub success: Option<bool>,
 }
 
-#[derive(Debug, Clone, Serialize, OptionalStruct, FieldType)]
-#[optional_derive(Debug, Clone, Serialize)]
-pub struct RequestParams {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub state: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub speed: Option<Number>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub ratio: Option<Number>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub brightness: Option<Number>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub temp: Option<Number>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub r: Option<Number>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub g: Option<Number>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub b: Option<Number>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub c: Option<Number>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub w: Option<Number>,
-    #[serde(rename = "sceneId", skip_serializing_if = "Option::is_none")]
-    pub scene_id: Option<Number>,
-    // TODO possibly missing params
-}
-
-impl RequestParams {
-    fn empty() -> Self {
-        RequestParams {
-            state: None,
-            speed: None,
-            ratio: None,
-            brightness: None,
-            temp: None,
-            r: None,
-            g: None,
-            b: None,
-            c: None,
-            w: None,
-            scene_id: None,
-        }
-    }
-}
-
-impl RequestParamsFieldType {
-    fn to_option_struct(self: Self) -> OptionalRequestParams {
-        let mut params_struct = OptionalRequestParams::empty();
-        match self {
-            RequestParamsFieldType::State(state) => {
-                params_struct.state = state;
-                params_struct
-            }
-            RequestParamsFieldType::Speed(speed) => {
-                params_struct.speed = speed;
-                params_struct
-            }
-            RequestParamsFieldType::Ratio(ratio) => {
-                params_struct.ratio = ratio;
-                params_struct
-            }
-            RequestParamsFieldType::Brightness(brightness) => {
-                params_struct.brightness = brightness;
-                params_struct
-            }
-            RequestParamsFieldType::Temp(temp) => {
-                params_struct.temp = temp;
-                params_struct
-            }
-            RequestParamsFieldType::R(r) => {
-                params_struct.r = r;
-                params_struct
-            }
-            RequestParamsFieldType::G(g) => {
-                params_struct.g = g;
-                params_struct
-            }
-            RequestParamsFieldType::B(b) => {
-                params_struct.b = b;
-                params_struct
-            }
-            RequestParamsFieldType::W(w) => {
-                params_struct.w = w;
-                params_struct
-            }
-            RequestParamsFieldType::C(c) => {
-                params_struct.c = c;
-                params_struct
-            }
-            RequestParamsFieldType::SceneId(scene_id) => {
-                params_struct.scene_id = scene_id;
-                params_struct
-            }
-        }
-    }
-}
-
-trait ToStruct {
-    fn to_struct(self) -> RequestParams;
-}
-
-impl ToStruct for Vec<RequestParamsFieldType> {
-    fn to_struct(self) -> RequestParams {
-        let mut params_struct = RequestParams::empty();
-        for param in self {
-            params_struct.apply_options(param.to_option_struct());
-        }
-        params_struct
-    }
-}
-
+/// Fingerprint with device MAC and return ID of a message
 #[derive(Debug, Clone)]
 pub struct Fingerprint {
     pub device: Option<MacAddr6>,
     pub id: Option<u32>,
 }
 
+/// Data definition for talking with a WizConnected device
 #[derive(Debug, Clone)]
 pub struct Target {
     pub name: String,
@@ -260,7 +321,7 @@ pub struct RPCResult {
 impl RPCResult {
     pub fn to_wizres(self: Self, mac: Option<MacAddr6>) -> Result<WizRPCResponse, QueryError> {
         Ok(WizRPCResponse {
-            method: if let Ok(method_name) = MethodNames::from_str(self.method.as_str()) {
+            method: if let Ok(method_name) = Method::from_str(self.method.as_str()) {
                 method_name
             } else {
                 return Err(QueryError::Serialization(
@@ -303,7 +364,7 @@ pub struct RPCRequest {
 }
 
 impl RPCRequest {
-    pub fn new(method: MethodNames, params: Option<RequestParams>) -> Self {
+    pub fn new(method: Method, params: Option<RequestParams>) -> Self {
         // TODO add error handling
         Self {
             method: method.to_string(),
@@ -317,22 +378,39 @@ impl RPCRequest {
     }
 }
 
+#[derive(Debug, Clone, Default)]
+pub enum RequestKind {
+    #[default]
+    Send,
+    Ping,
+    Mac,
+    Discovery,
+}
+
+#[derive(Debug, Clone)]
+/// Serializable data for performing a request to a device
 pub struct WizRPCRequest {
-    pub device: String,
-    pub method: MethodNames,
-    pub params: Option<Vec<RequestParamsFieldType>>,
+    pub device: Option<String>,
+    pub method: Method,
+    pub params: Option<Vec<Param>>,
+    pub kind:  RequestKind
 }
 
 impl WizRPCRequest {
-    pub fn new(
-        device: String,
-        method: MethodNames,
-        params: Option<Vec<RequestParamsFieldType>>,
-    ) -> Self {
+    pub fn new_with_kind(device: Option<String>, method: Method, params: Option<Vec<Param>>, kind: RequestKind) -> Self {
         WizRPCRequest {
-            device: device,
-            method: method,
-            params: params,
+            device,
+            method,
+            params,
+            kind
+        }
+    }
+    pub fn new(device: Option<String>, method: Method, params: Option<Vec<Param>>) -> Self {
+        WizRPCRequest {
+            device,
+            method,
+            params,
+            kind: Default::default()
         }
     }
     pub fn to_raw(self: Self) -> Result<Vec<u8>, QueryError> {
@@ -341,14 +419,26 @@ impl WizRPCRequest {
         } else {
             None
         };
-        let request = RPCRequest::new(self.method, params);
-        let request_raw = serde_json::to_string(&request)?;
+
+        let request_raw: String;
+        match self.method {
+            Method::Ping => {
+                request_raw = "{}".to_string();
+            }
+            _ => {
+                let request = RPCRequest::new(self.method, params);
+                request_raw = serde_json::to_string(&request)?;
+            }
+        }
+        
         Ok(Vec::from(request_raw.as_bytes()))
     }
 }
 
+/// Deserialized response from a device
+#[derive(Clone, Debug)]
 pub struct WizRPCResponse {
-    pub method: MethodNames,
+    pub method: Method,
     pub result: Option<ResponseParams>,
     pub fingerprint: Option<Fingerprint>,
 }

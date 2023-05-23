@@ -1,9 +1,12 @@
 use crate::model::RPCError;
-use crate::model::Target;
 use serde_json::Value;
-use socket2::Socket;
-use std::sync::{PoisonError, RwLockReadGuard, RwLockWriteGuard};
+use std::io::ErrorKind;
+use std::sync::PoisonError;
 use thiserror::Error;
+use tokio::sync::oneshot::error::RecvError;
+use tokio::sync::TryLockError;
+use tokio::sync::{RwLockReadGuard, RwLockWriteGuard};
+use tokio::task::JoinError;
 
 #[derive(Error, Debug, Clone)]
 pub enum WizNetError {
@@ -28,7 +31,7 @@ pub enum WizNetError {
         data: Option<Value>,
     },
     #[error("Target is not a wiz device or returned bogus data")]
-    NotAWizDevice,
+    NotAWizTarget,
 }
 
 impl WizNetError {
@@ -78,6 +81,12 @@ pub enum QueryError {
     Network(std::io::Error),
     #[error(transparent)]
     Sync(SyncError),
+    #[error("Socket is busy")]
+    WouldBlock,
+    #[error("No Target device selected")]
+    NoTarget,
+    #[error("No idea what happened. File a bug report.")]
+    Unknown,
 }
 #[derive(Error, Debug, Clone, Copy)]
 pub enum SerializationError {
@@ -101,6 +110,41 @@ pub enum SerializationError {
 pub enum SyncError {
     #[error("Mutex lock failed")]
     MutexLock,
+    #[error("Mutex lock failed")]
+    RwLock,
+    #[error("Joining task failed")]
+    JoinTask,
+    #[error("ID missing on history. Consistency error?")]
+    BadId,
+    #[error("Error receiving data in OneShot channel.")]
+    ChannelReceive,
+}
+
+impl From<RecvError> for QueryError {
+    fn from(_err: RecvError) -> Self {
+        QueryError::Sync(SyncError::ChannelReceive)
+    }
+}
+
+impl From<TryLockError> for QueryError {
+    fn from(_: TryLockError) -> Self {
+        QueryError::Sync(SyncError::RwLock)
+    }
+}
+
+impl From<JoinError> for QueryError {
+    fn from(_: JoinError) -> Self {
+        QueryError::Sync(SyncError::JoinTask)
+    }
+}
+
+impl From<std::io::ErrorKind> for QueryError {
+    fn from(err: std::io::ErrorKind) -> Self {
+        match err {
+            ErrorKind::WouldBlock => QueryError::WouldBlock,
+            _ => QueryError::Network(err.into()),
+        }
+    }
 }
 
 impl From<std::io::Error> for QueryError {
@@ -121,38 +165,26 @@ impl From<retry::Error<std::io::Error>> for QueryError {
     }
 }
 
-impl From<retry::Error<PoisonError<RwLockWriteGuard<'_, Socket>>>> for QueryError {
-    fn from(_: retry::Error<PoisonError<RwLockWriteGuard<'_, Socket>>>) -> Self {
+impl<T> From<retry::Error<PoisonError<RwLockWriteGuard<'_, T>>>> for QueryError {
+    fn from(_: retry::Error<PoisonError<RwLockWriteGuard<'_, T>>>) -> Self {
         QueryError::Sync(SyncError::MutexLock)
     }
 }
 
-impl From<PoisonError<RwLockWriteGuard<'_, Vec<Target>>>> for QueryError {
-    fn from(_: PoisonError<RwLockWriteGuard<'_, Vec<Target>>>) -> Self {
+impl<T> From<PoisonError<RwLockWriteGuard<'_, T>>> for QueryError {
+    fn from(_: PoisonError<RwLockWriteGuard<'_, T>>) -> Self {
         QueryError::Sync(SyncError::MutexLock)
     }
 }
 
-impl From<PoisonError<RwLockWriteGuard<'_, Vec<String>>>> for QueryError {
-    fn from(_: PoisonError<RwLockWriteGuard<'_, Vec<String>>>) -> Self {
+impl<T> From<retry::Error<PoisonError<RwLockReadGuard<'_, T>>>> for QueryError {
+    fn from(_: retry::Error<PoisonError<RwLockReadGuard<'_, T>>>) -> Self {
         QueryError::Sync(SyncError::MutexLock)
     }
 }
 
-impl From<retry::Error<PoisonError<RwLockReadGuard<'_, Socket>>>> for QueryError {
-    fn from(_: retry::Error<PoisonError<RwLockReadGuard<'_, Socket>>>) -> Self {
-        QueryError::Sync(SyncError::MutexLock)
-    }
-}
-
-impl From<PoisonError<RwLockReadGuard<'_, Vec<Target>>>> for QueryError {
-    fn from(_: PoisonError<RwLockReadGuard<'_, Vec<Target>>>) -> Self {
-        QueryError::Sync(SyncError::MutexLock)
-    }
-}
-
-impl From<PoisonError<RwLockReadGuard<'_, Vec<String>>>> for QueryError {
-    fn from(_: PoisonError<RwLockReadGuard<'_, Vec<String>>>) -> Self {
+impl<T> From<PoisonError<RwLockReadGuard<'_, T>>> for QueryError {
+    fn from(_: PoisonError<RwLockReadGuard<'_, T>>) -> Self {
         QueryError::Sync(SyncError::MutexLock)
     }
 }

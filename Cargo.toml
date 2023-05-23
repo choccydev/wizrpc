@@ -19,11 +19,22 @@ strum = "0.24.1"
 strum_macros = "0.24.3"
 thiserror = "1.0.37"
 rand = "0.8.5"
-tokio = { version = "1.22.0", features = ["net", "rt", "macros", "sync"] }
+tokio = { version = "1.22.0", features = [
+    "net",
+    "rt",
+    "macros",
+    "sync",
+    "time",
+] }
+tokio-test = "0.4.2"
 dns-lookup = "1.0.8"
 socket2 = "0.4.7"
-local-ip-address = "0.4.9"
+local-ip-address = "0.5.1"
 bytemuck = "1.12.3"
 retry = "2.0.0"
-optional_struct = "0.2.0"
+optional_struct = "0.3.1"
 field_types = "1.1.0"
+deadqueue = "0.2.4"
+uuid = { version = "1.2.2", features = ["v4"] }
+async-recursion = "1.0.0"
+debug-helper = "0.3.13"

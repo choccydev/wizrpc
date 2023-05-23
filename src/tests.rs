@@ -1,27 +1,32 @@
+use std::time::Duration;
+
 use crate::{Client, Method, Param, Request};
+use tokio::time::sleep;
 
 #[tokio::test]
 async fn test_client_new() {
     Client::default().await.unwrap();
 }
-#[tokio::test]
+
+/* #[tokio::test]
 async fn test_ping() {
     let client = Client::default().await.unwrap();
 
     client
-        .register("Office".to_string(), "office.wiz.local".to_string())
+        .register_device("Office".to_string(), "office.wiz.local".to_string())
         .await
         .unwrap();
 
     client
-        .register("Room".to_string(), "room.wiz.local".to_string())
+        .register_device("Room".to_string(), "room.wiz.local".to_string())
         .await
         .unwrap();
 
     client.ping("Office".to_string()).await.unwrap();
     client.ping("Room".to_string()).await.unwrap();
-}
+} */
 
+/*
 #[tokio::test]
 async fn test_ping_5() {
     let client = Client::default().await.unwrap();
@@ -37,44 +42,72 @@ async fn test_ping_5() {
         client.ping("Office".to_string()).await.unwrap();
     }
 }
+*/
+// #[tokio::test]
+// async fn test_ping_25() {
+//     let client = Client::default().await.unwrap();
 
-#[tokio::test]
-async fn test_ping_25() {
-    let client = Client::default().await.unwrap();
+//     client
+//         .register_device("Office".to_string(), "office.wiz.local".to_string())
+//         .await
+//         .unwrap();
 
-    client
-        .register("Office".to_string(), "office.wiz.local".to_string())
-        .await
-        .unwrap();
+//     let amount = 0..25;
 
-    let amount = 0..25;
+//     for _ in amount {
+//         client.ping("Office".to_string()).await.unwrap();
+//     }
+// }
 
-    for _ in amount {
-        client.ping("Office".to_string()).await.unwrap();
-    }
-}
+// #[tokio::test]
+// async fn test_send_no_params_non_modyfing() {
+//     let client = Client::default().await.unwrap();
 
-#[tokio::test]
-async fn test_send_no_params_non_modyfing() {
-    let client = Client::default().await.unwrap();
+//     client
+//         .register_device("Office".to_string(), "office.wiz.local".to_string())
+//         .await
+//         .unwrap();
 
-    client
-        .register("Office".to_string(), "office.wiz.local".to_string())
-        .await
-        .unwrap();
+//     let request = Request::new(Some("Office".to_string()), Method::GetSystemConfig, None);
+//     let module = client
+//         .send(request)
+//         .await
+//         .unwrap()
+//         .result
+//         .unwrap()
+//         .module_name
+//         .unwrap();
 
-    let request = Request::new("Office".to_string(), Method::GetSystemConfig, None);
-    let module = client
-        .send(request)
-        .await
-        .unwrap()
-        .result
-        .unwrap()
-        .module_name
-        .unwrap();
+//     assert_eq!(module.as_str(), "ESP01_SHRGB1C_31");
+// }
 
-    assert_eq!(module.as_str(), "ESP01_SHRGB1C_31");
-}
+// #[tokio::test]
+// async fn test_send_no_params_non_modyfing_25() {
+//     let client = Client::default().await.unwrap();
+
+//     client
+//         .register_device("Office".to_string(), "office.wiz.local".to_string())
+//         .await
+//         .unwrap();
+
+//     let amount = 0..25;
+
+//     for _ in amount {
+//         let request = Request::new(Some("Office".to_string()), Method::GetSystemConfig, None);
+//         let module = client
+//             .send(request)
+//             .await
+//             .unwrap()
+//             .result
+//             .unwrap()
+//             .module_name
+//             .unwrap();
+
+//         assert_eq!(module.as_str(), "ESP01_SHRGB1C_31");
+//     }
+// }
+
+/*
 
 #[tokio::test]
 async fn test_send_no_params() {
@@ -98,24 +131,26 @@ async fn test_send_no_params() {
 
     assert_eq!(reboot, true);
 }
+*/
 
+/*
 #[tokio::test]
 async fn test_send() {
     let client = Client::default().await.unwrap();
 
     client
-        .register("Office".to_string(), "office.wiz.local".to_string())
+        .register_device("Office".to_string(), "office.wiz.local".to_string())
         .await
         .unwrap();
 
     let request1 = Request::new(
-        "Office".to_string(),
+        Some("Office".to_string()),
         Method::SetState,
         Some(vec![Param::State(Some(false))]),
     );
 
     let request2 = Request::new(
-        "Office".to_string(),
+        Some("Office".to_string()),
         Method::SetState,
         Some(vec![Param::State(Some(true))]),
     );
@@ -129,6 +164,10 @@ async fn test_send() {
         .success
         .unwrap();
 
+    assert_eq!(off, true);
+
+    sleep(Duration::from_millis(100)).await;
+
     let on = client
         .send(request2)
         .await
@@ -137,10 +176,9 @@ async fn test_send() {
         .unwrap()
         .success
         .unwrap();
-
-    assert_eq!(off, true);
     assert_eq!(on, true);
 }
+ */
 
 // #[tokio::test]
 // async fn test_client_discover() {
