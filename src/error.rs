@@ -9,6 +9,7 @@ use tokio::sync::oneshot::error::RecvError;
 use tokio::sync::TryLockError;
 use tokio::sync::{RwLockReadGuard, RwLockWriteGuard};
 use tokio::task::JoinError;
+use tokio::time::error::Elapsed;
 
 #[derive(Error, Debug, Clone)]
 pub enum WizNetError {
@@ -150,6 +151,13 @@ impl From<SurgeError> for QueryError {
     fn from(_: SurgeError) -> Self {
         // TODO this is garbage please flesh this out better
         QueryError::Network(ErrorKind::Other.into())
+    }
+}
+
+impl From<Elapsed> for QueryError {
+    fn from(_: Elapsed) -> Self {
+        // TODO this is garbage please flesh this out better
+        QueryError::Network(ErrorKind::TimedOut.into())
     }
 }
 
