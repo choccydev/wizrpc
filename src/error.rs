@@ -1,7 +1,9 @@
 use crate::model::RPCError;
 use serde_json::Value;
 use std::io::ErrorKind;
+use std::net::AddrParseError;
 use std::sync::PoisonError;
+use surge_ping::SurgeError;
 use thiserror::Error;
 use tokio::sync::oneshot::error::RecvError;
 use tokio::sync::TryLockError;
@@ -135,6 +137,19 @@ impl From<TryLockError> for QueryError {
 impl From<JoinError> for QueryError {
     fn from(_: JoinError) -> Self {
         QueryError::Sync(SyncError::JoinTask)
+    }
+}
+
+impl From<AddrParseError> for QueryError {
+    fn from(_: AddrParseError) -> Self {
+        QueryError::Serialization(SerializationError::IPAddrError)
+    }
+}
+
+impl From<SurgeError> for QueryError {
+    fn from(_: SurgeError) -> Self {
+        // TODO this is garbage please flesh this out better
+        QueryError::Network(ErrorKind::Other.into())
     }
 }
 

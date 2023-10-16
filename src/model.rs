@@ -269,30 +269,16 @@ pub struct ResponseParams {
 /// Fingerprint with device MAC and return ID of a message
 #[derive(Debug, Clone)]
 pub struct Fingerprint {
-    pub device: Option<MacAddr6>,
+    //pub device: Option<MacAddr6>,
     pub id: Option<u32>,
 }
 
 /// Data definition for talking with a WizConnected device
+/// TODO add getModelConfig to have capabilities registered
 #[derive(Debug, Clone)]
 pub struct Target {
-    pub name: String,
     pub address: IpAddr,
     pub mac: MacAddr6,
-}
-
-impl Target {
-    pub fn new(address: IpAddr, mac: MacAddr6, name: Option<String>) -> Self {
-        Self {
-            name: if let Some(good_name) = name {
-                good_name
-            } else {
-                mac.to_string()
-            },
-            address: address,
-            mac,
-        }
-    }
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -319,7 +305,7 @@ pub struct RPCResult {
 }
 
 impl RPCResult {
-    pub fn to_wizres(self: Self, mac: Option<MacAddr6>) -> Result<WizRPCResponse, QueryError> {
+    pub fn to_wizres(self: Self, _mac: Option<MacAddr6>) -> Result<WizRPCResponse, QueryError> {
         Ok(WizRPCResponse {
             method: if let Ok(method_name) = Method::from_str(self.method.as_str()) {
                 method_name
@@ -335,7 +321,7 @@ impl RPCResult {
             },
             fingerprint: if let Some(id) = self.id {
                 Some(Fingerprint {
-                    device: mac,
+                    //device: mac,
                     id: Some(id),
                 })
             } else {

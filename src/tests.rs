@@ -1,85 +1,75 @@
-use std::time::Duration;
-
-use crate::{Client, Method, Param, Request};
-use tokio::time::sleep;
+use crate::{Client, Method, Request};
+use serial_test::serial;
 
 #[tokio::test]
-async fn test_client_new() {
-    Client::default().await.unwrap();
-}
-
-/* #[tokio::test]
+#[serial]
 async fn test_ping() {
     let client = Client::default().await.unwrap();
 
     client
-        .register_device("Office".to_string(), "office.wiz.local".to_string())
+        .register_device("office".to_string(), "192.168.0.87".to_string())
         .await
         .unwrap();
 
-    client
-        .register_device("Room".to_string(), "room.wiz.local".to_string())
-        .await
-        .unwrap();
+    client.ping("office".to_string()).await.unwrap();
+}
 
-    client.ping("Office".to_string()).await.unwrap();
-    client.ping("Room".to_string()).await.unwrap();
-} */
-
-/*
 #[tokio::test]
+#[serial]
 async fn test_ping_5() {
     let client = Client::default().await.unwrap();
 
     client
-        .register("Office".to_string(), "office.wiz.local".to_string())
+        .register_device("office".to_string(), "192.168.0.87".to_string())
         .await
         .unwrap();
 
     let amount = 0..5;
 
     for _ in amount {
-        client.ping("Office".to_string()).await.unwrap();
+        client.ping("office".to_string()).await.unwrap();
     }
 }
-*/
-// #[tokio::test]
-// async fn test_ping_25() {
-//     let client = Client::default().await.unwrap();
 
-//     client
-//         .register_device("Office".to_string(), "office.wiz.local".to_string())
-//         .await
-//         .unwrap();
+#[tokio::test]
+#[serial]
+async fn test_ping_25() {
+    let client = Client::default().await.unwrap();
 
-//     let amount = 0..25;
+    client
+        .register_device("office".to_string(), "192.168.0.87".to_string())
+        .await
+        .unwrap();
 
-//     for _ in amount {
-//         client.ping("Office".to_string()).await.unwrap();
-//     }
-// }
+    let amount = 0..25;
 
-// #[tokio::test]
-// async fn test_send_no_params_non_modyfing() {
-//     let client = Client::default().await.unwrap();
+    for _ in amount {
+        client.ping("office".to_string()).await.unwrap();
+    }
+}
 
-//     client
-//         .register_device("Office".to_string(), "office.wiz.local".to_string())
-//         .await
-//         .unwrap();
+#[tokio::test]
+#[serial]
+async fn test_send_no_params_non_modyfing() {
+    let client = Client::default().await.unwrap();
 
-//     let request = Request::new(Some("Office".to_string()), Method::GetSystemConfig, None);
-//     let module = client
-//         .send(request)
-//         .await
-//         .unwrap()
-//         .result
-//         .unwrap()
-//         .module_name
-//         .unwrap();
+    client
+        .register_device("office".to_string(), "192.168.0.87".to_string())
+        .await
+        .unwrap();
 
-//     assert_eq!(module.as_str(), "ESP01_SHRGB1C_31");
-// }
+    let request = Request::new(Some("office".to_string()), Method::GetSystemConfig, None);
+    let module = client
+        .send(request)
+        .await
+        .unwrap()
+        .result
+        .unwrap()
+        .module_name
+        .unwrap();
+
+    assert_eq!(module.as_str(), "ESP01_SHRGB1C_31");
+}
 
 // #[tokio::test]
 // async fn test_send_no_params_non_modyfing_25() {
