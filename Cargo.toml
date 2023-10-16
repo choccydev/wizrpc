@@ -1,6 +1,6 @@
 [package]
 name = "wizrpc"
-version = "0.1.6"
+version = "0.1.7"
 edition = "2021"
 license = "MIT"
 description = "[WIP] Rust support for the JSON-RPC variant used by the local network interface to control WizConnected devices"
@@ -15,8 +15,8 @@ lazy_static = "1.4.0"
 macaddr = { version = "1.0.1", features = ["serde_std"] }
 serde = { version = "1.0.147", features = ["derive"] }
 serde_json = { version = "1.0.87", features = ["raw_value"] }
-strum = "0.24.1"
-strum_macros = "0.24.3"
+strum = "0.25.0"
+strum_macros = "0.25.3"
 thiserror = "1.0.37"
 rand = "0.8.5"
 tokio = { version = "1.22.0", features = [
@@ -27,7 +27,6 @@ tokio = { version = "1.22.0", features = [
     "time",
 ] }
 tokio-test = "0.4.2"
-socket2 = "0.4.7"
 local-ip-address = "0.5.1"
 retry = "2.0.0"
 optional_struct = "0.3.1"
