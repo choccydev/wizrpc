@@ -1,23 +1,15 @@
 use local_ip_address::local_ip;
 use macaddr::MacAddr6;
-use socket2::{Domain, Protocol, SockAddr, Socket, Type};
 use std::{
     collections::HashMap,
-    mem::MaybeUninit,
     net::{IpAddr, Ipv4Addr, SocketAddr},
     sync::Arc,
     time::Duration,
 };
-use tokio::{
-    net::UdpSocket,
-    sync::Mutex,
-    time::{sleep, timeout},
-};
+use tokio::{net::UdpSocket, sync::Mutex, time::timeout};
 use uuid::Uuid;
 
 use lazy_static::lazy_static;
-use retry::delay::{jitter, Fixed};
-use retry::retry;
 use tokio::time::Instant;
 
 use crate::{
@@ -27,7 +19,6 @@ use crate::{
 };
 
 pub const DEFAULT_BUFFER_SIZE: usize = 1024;
-pub const DEFAULT_RETRIES: usize = 10;
 
 lazy_static! {
     pub static ref DEFAULT_TARGET_PORT: u16 = 38899;
@@ -40,7 +31,7 @@ lazy_static! {
     pub static ref DEFAULT_SOCK_SEND_ADDRESS: String =
         format!("{}:{}", *DEFAULT_BIND_ADDRESS, *DEFAULT_SOURCE_SEND_PORT);
     pub static ref DEFAULT_PING_TIMEOUT: Duration = Duration::from_millis(35);
-    pub static ref DEFAULT_DATA_TIMEOUT: Duration = Duration::from_millis(200);
+    pub static ref DEFAULT_DATA_TIMEOUT: Duration = Duration::from_millis(150);
 }
 
 #[derive(Debug)]
@@ -58,39 +49,28 @@ pub struct WizEvent {
 pub struct Client {
     pub sock: UdpSocket,
     pub devices: Mutex<HashMap<String, Target>>,
-    pub retries: usize,
     pub history: Mutex<HashMap<Uuid, WizEvent>>,
 }
 
 impl Client {
     pub async fn default() -> Result<Arc<Self>, QueryError> {
-        Ok(Client::new(None, None, None, None).await?)
+        Ok(Client::new(None, None).await?)
     }
 
     pub async fn new(
         bind_addr: Option<IpAddr>,
         bind_port: Option<u16>,
-        data_timeout_ms: Option<u64>,
-        retries_number: Option<usize>,
     ) -> Result<Arc<Self>, QueryError> {
         let addr = SocketAddr::new(
             bind_addr.unwrap_or(*DEFAULT_BIND_ADDRESS),
             bind_port.unwrap_or(DEFAULT_SOURCE_SEND_PORT.clone()),
         );
 
-        let data_timeout = if let Some(data) = data_timeout_ms {
-            Duration::from_millis(data)
-        } else {
-            *DEFAULT_DATA_TIMEOUT
-        };
-
         let sock = UdpSocket::bind(&addr).await?;
         sock.join_multicast_v4(*DEFAULT_MULTICAST_ADDRESS, Ipv4Addr::UNSPECIFIED)?;
 
-        let retries = retries_number.unwrap_or(DEFAULT_RETRIES);
         Ok(Arc::new(Client {
             sock,
-            retries,
             devices: Mutex::new(HashMap::new()),
             history: Mutex::new(HashMap::new()),
         }))
@@ -273,7 +253,7 @@ impl Client {
         match timeout(send_timeout, send_data_future).await {
             Ok(_) => {
                 while attempts < max_attempts {
-                    let recv_timeout = Duration::from_millis(150);
+                    let recv_timeout = *DEFAULT_DATA_TIMEOUT;
                     let result = timeout(recv_timeout, self.sock.recv_from(&mut buf)).await;
 
                     match result {
