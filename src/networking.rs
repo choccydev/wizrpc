@@ -3,7 +3,6 @@ use macaddr::MacAddr6;
 use socket2::{Domain, Protocol, SockAddr, Socket, Type};
 use std::{
     collections::HashMap,
-    io::ErrorKind,
     mem::MaybeUninit,
     net::{IpAddr, SocketAddr},
     sync::Arc,
@@ -15,11 +14,7 @@ use uuid::Uuid;
 use lazy_static::lazy_static;
 use retry::delay::{jitter, Fixed};
 use retry::retry;
-use tokio::{
-    net::UdpSocket,
-    sync::{oneshot, RwLock},
-    time::Instant,
-};
+use tokio::time::Instant;
 
 use crate::{
     error::{QueryError, SerializationError, WizNetError},
@@ -45,7 +40,7 @@ lazy_static! {
 
 #[derive(Debug)]
 pub struct WizEvent {
-    pub request: Request,
+    pub request: Option<Request>,
     pub request_raw: Vec<u8>,
     pub request_time: Instant,
     pub response: Option<Response>,
@@ -59,7 +54,6 @@ pub struct Client {
     pub sock: Socket,
     pub devices: Mutex<HashMap<String, Target>>,
     pub retries: usize,
-    pub queue: HashMap<Uuid, u8>,
     pub history: Mutex<HashMap<Uuid, WizEvent>>,
 }
 
@@ -102,7 +96,7 @@ impl Client {
         sock.set_recv_buffer_size(DEFAULT_BUFFER_SIZE)?;
         sock.bind(&addr)?;
 
-        let host = sock.local_addr().unwrap().as_socket().unwrap().ip();
+        //let host = sock.local_addr().unwrap().as_socket().unwrap().ip();
 
         let retries = if let Some(number) = retries_number {
             number // TODO return Err if this is larger than a u8
@@ -113,7 +107,6 @@ impl Client {
             sock,
             retries,
             devices: Mutex::new(HashMap::new()),
-            queue: HashMap::new(),
             history: Mutex::new(HashMap::new()),
         }))
     }
@@ -141,12 +134,27 @@ impl Client {
             ))?;
 
         let mut devices = self.devices.lock().await;
+        let mut history = self.history.lock().await;
 
-        devices.insert(
-            name,
-            Target {
-                address: address.parse()?,
-                mac: MacAddr6::from(parse_mac_address(device_data.mac.unwrap().as_str())?),
+        let device = Target {
+            address: address.parse()?,
+            mac: MacAddr6::from(parse_mac_address(device_data.mac.unwrap().as_str())?),
+        };
+
+        devices.insert(name, device.clone());
+
+        let id = history.len() + 1;
+
+        history.insert(
+            Uuid::now_v1(&counter_to_bytes(id)),
+            WizEvent {
+                request: None,
+                request_raw: Vec::from("REGISTERED_DEVICE".as_bytes()),
+                request_time: Instant::now(),
+                response: None,
+                response_raw: None,
+                response_time: None,
+                target: Some(device),
             },
         );
 
@@ -183,12 +191,36 @@ impl Client {
         let device = self.get_device(request.clone().device).await?;
 
         let addr = device.address;
-        match self.send_raw(request.to_raw()?.as_slice(), addr).await {
+        let req_time = Instant::now();
+        match self
+            .send_raw(request.clone().to_raw()?.as_slice(), addr)
+            .await
+        {
             Err(err) => {
                 return Err(err);
             }
             Ok(val) => {
-                return Ok(self.parse_raw(val)?);
+                let res_time = Instant::now();
+
+                let parsed = self.parse_raw(val.clone())?;
+
+                let mut history = self.history.lock().await;
+                let id = history.len() + 1;
+
+                history.insert(
+                    Uuid::now_v1(&counter_to_bytes(id)),
+                    WizEvent {
+                        request: Some(request.clone()),
+                        request_raw: request.to_raw()?,
+                        request_time: req_time,
+                        response: Some(parsed.clone()),
+                        response_raw: Some(val),
+                        response_time: Some(res_time),
+                        target: Some(device),
+                    },
+                );
+
+                return Ok(parsed);
             }
         };
     }
@@ -213,6 +245,22 @@ impl Client {
         .ok_or(QueryError::Serialization(
             SerializationError::ValueDeserialization,
         ))?;
+
+        let mut history = self.history.lock().await;
+        let id = history.len() + 1;
+
+        history.insert(
+            Uuid::now_v1(&counter_to_bytes(id)),
+            WizEvent {
+                request: None,
+                request_raw: Vec::from("PING".as_bytes()),
+                request_time: Instant::now(),
+                response: None,
+                response_raw: None,
+                response_time: None,
+                target: Some(device),
+            },
+        );
 
         Ok(())
     }
@@ -300,4 +348,13 @@ fn parse_mac_address(mac_address_str: &str) -> Result<[u8; 6], QueryError> {
     }
 
     Ok(bytes)
+}
+
+fn counter_to_bytes(counter: usize) -> [u8; 6] {
+    assert!(counter <= (u64::MAX >> 16).try_into().unwrap());
+
+    let mut bytes = [0u8; 6];
+    let counter_bytes = (counter as u64).to_be_bytes(); // Convert to big-endian bytes
+    bytes.copy_from_slice(&counter_bytes[2..]); // Copy the last 6 bytes
+    bytes
 }

@@ -237,6 +237,8 @@ pub enum Method {
     Registration,
     #[strum(serialize = "PING")]
     Ping,
+    #[strum(serialize = "REGISTERED_DEVICE")]
+    RegisteredDevice,
 }
 
 #[derive(Debug, Clone, Deserialize)]

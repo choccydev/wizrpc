@@ -32,7 +32,7 @@ local-ip-address = "0.5.1"
 retry = "2.0.0"
 optional_struct = "0.3.1"
 field_types = "1.1.0"
-uuid = { version = "1.2.2", features = ["v4"] }
+uuid = { version = "1.2.2", features = ["v1", "rng", "std"] }
 debug-helper = "0.3.13"
 surge-ping = "0.8.0"
 serial_test = "2.0.0"
