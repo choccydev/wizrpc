@@ -249,6 +249,61 @@ impl Client {
         Ok(())
     }
 
+    pub async fn discover(self: &Arc<Self>, wait: u8) -> Result<Vec<Target>, QueryError> {
+        let mut buf = vec![0u8; DEFAULT_BUFFER_SIZE]; // Buffer to store incoming data
+        let mut entries: Vec<Target> = [].to_vec();
+
+        // You might want to initialize this dynamically based on some condition
+        let max_attempts = 50;
+        let mut attempts = 0;
+
+        // Timeout for sending data
+        let send_timeout = Duration::from_secs(wait.into());
+        let send_data_future = self.sock.send_to(
+            "{\"method\": \"getSystemConfig\"}".as_bytes(),
+            SocketAddr::new(
+                DEFAULT_MULTICAST_ADDRESS
+                    .to_string()
+                    .parse::<IpAddr>()
+                    .unwrap(),
+                *DEFAULT_TARGET_PORT,
+            ),
+        );
+
+        match timeout(send_timeout, send_data_future).await {
+            Ok(_) => {
+                while attempts < max_attempts {
+                    let recv_timeout = Duration::from_millis(150);
+                    let result = timeout(recv_timeout, self.sock.recv_from(&mut buf)).await;
+
+                    match result {
+                        Ok(Ok((size, addr))) => {
+                            if size > 0 {
+                                let device_data =
+                                    parse_raw(Vec::from(&buf[0..size]))?.result.unwrap();
+
+                                entries.push(Target {
+                                    address: get_ip_from_sockaddr(addr),
+                                    mac: MacAddr6::from(parse_mac_address(
+                                        device_data.mac.unwrap().as_str(),
+                                    )?),
+                                });
+                            }
+                        }
+                        Ok(Err(err)) => {
+                            return Err(err.into());
+                        }
+                        Err(_) => {
+                            attempts += 1;
+                        }
+                    }
+                }
+                Ok(entries)
+            }
+            Err(_) => Ok(entries),
+        }
+    }
+
     async fn send_raw(
         self: &Arc<Self>,
         data: &[u8],

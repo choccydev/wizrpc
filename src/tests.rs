@@ -71,6 +71,18 @@ async fn test_send_no_params_non_modyfing() {
     assert_eq!(module.as_str(), "ESP01_SHRGB1C_31");
 }
 
+#[tokio::test]
+#[serial]
+async fn test_discovery() {
+    let client = Client::default().await.unwrap();
+
+    let entries = client.discover(2).await.unwrap();
+
+    if entries.len() != 2 {
+        assert!(false);
+    }
+}
+
 // #[tokio::test]
 // async fn test_send_no_params_non_modyfing_25() {
 //     let client = Client::default().await.unwrap();
